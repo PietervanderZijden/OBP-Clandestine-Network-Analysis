@@ -4,7 +4,7 @@ from argon2.exceptions import VerifyMismatchError
 
 # https://www.authgear.com/tools/password-hash-generator
 USERS = {
-    "pieter": "$argon2id$v=19$m=19456,t=2,p=1$MTQ1ZjUyODZlM2E2M2M5YWI3ZjcyYTQ4NTNmZmZlZjA$yy/BecZcUhR5l9wsW1K1zJSXztNKDT9p8mtJOJoBUtg", # password: isdik
+    "admin": "$argon2id$v=19$m=19456,t=2,p=1$YjNlMTcyYTIwYzkxNzVhNjYxNjAyYjE2ODZhZWI2Y2M$ouBS5CiPrpo2U7dxzEdKiU5tSB4crnLnGZzSdKbuI7s", # password: admin
 }
 
 if "logged_in" not in st.session_state:
