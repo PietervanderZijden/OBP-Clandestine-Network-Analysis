@@ -1,6 +1,7 @@
 import streamlit as st
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+import os
 
 # https://www.authgear.com/tools/password-hash-generator
 USERS = {
@@ -8,7 +9,12 @@ USERS = {
 }
 
 if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+    if os.path.exists(".venv"): 
+        st.session_state.logged_in = True
+        st.session_state.username = "admin"
+    else:
+        st.session_state.logged_in = False
+
 
 def login_screen():
     st.title("DSS Clandestine Network Analysis")

@@ -15,5 +15,7 @@ Decision Support System for Social Network Analysis of a 62-person clandestine o
 3. **Install dependencies:**
    `pip install -r requirements.txt`
 
-4. **Run streamlit:**
+4. **Run streamlit:** (this is local but is good for quick testing)
    `streamlit run app.py`
+
+
