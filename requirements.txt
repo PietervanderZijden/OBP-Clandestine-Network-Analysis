@@ -1,5 +1,6 @@
 # Core Framework
 streamlit
+watchdog
 
 # Network Science & Math
 networkx
