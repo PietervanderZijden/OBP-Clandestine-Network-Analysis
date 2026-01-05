@@ -1,6 +1,7 @@
 # Core Framework
 streamlit
 watchdog
+argon2-cffi
 
 # Network Science & Math
 networkx
