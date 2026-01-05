@@ -1,0 +1,13 @@
+# Core Framework
+streamlit
+
+# Network Science & Math
+networkx
+scipy
+numpy
+pandas
+
+# Visualization
+pyvis
+matplotlib
+streamlit-option-menu
