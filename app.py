@@ -59,6 +59,7 @@ if st.session_state.logged_in:
         st.Page("0_welcome.py", title="Welcome", default=True),
         st.Page("1_members.py", title="Members"),
         st.Page("2_roles.py", title="Roles"),
+        st.Page("4_kemeny.py", title="Kemeny"),
         st.Page(logout_screen, title="Log out")
     ])
 else:
