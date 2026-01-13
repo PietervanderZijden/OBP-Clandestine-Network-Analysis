@@ -28,7 +28,7 @@ def compute_roles(_A):
 
 results = compute_roles(A)
 
-df_flow = resutls["df_flow"]
+df_flow = results["df_flow"]
 df_dist = results["df_dist"]
 df_cent = results["df_cent"]
 df_overlap = results["df_overlap"]
@@ -73,7 +73,7 @@ def confidence_for_node(i: int) -> float:
   agree = sum(v == final_role for v in votes.values())
   return agree / len(votes)
 
-df_display = df_flow[["node","role_name","embeddedness_socre","in_total","out_total","net_flow"]].copy()
+df_display = df_flow[["node","role_name","embeddedness_score","in_total","out_total","net_flow"]].copy()
 df_display["confidence"] = [confidence_for_node(i) for i in df_display["node"]]
 
 ROLE_COLORS = {
@@ -95,14 +95,15 @@ def plot_network(G, df_display):
 
   fig = go.Figure()
   fig.add_trace(go.Scatter(
-    x=edge_x, y=edge_y, mode="lines", hoverinfo="none", line=dict(width-0.6, color="rgba(180,180,180,0.35)")))
+    x=edge_x, y=edge_y, mode="lines", hoverinfo="none", line=dict(width=0.6, color="rgba(180,180,180,0.35)")))
   
   node_x, node_y, node_color, hover = [], [], [], []
   sizes = []
 
   emb = df_display["embeddedness_score"].to_numpy()
   emb_min, emb_max = float(np.min(emb)), float(np.max(emb))
-  denom = (emb_max - emb_mix) if emb_max > emb_min else 1.0
+  denom = (emb_max - emb_min) if emb_max > emb_min else 1.0
+
 
   for n in G.nodes():
     x, y = pos[n]
@@ -112,13 +113,14 @@ def plot_network(G, df_display):
     conf = df_display.loc[n, "confidence"]
     node_color.append(ROLE_COLORS.get(role, "#95a5a6"))
 
-    s = 12 + 18 * ((df_display.loc[n,"embeddedness_socre"] - emb_min) / denom)
+    s = 12 + 18 * ((df_display.loc[n,"embeddedness_score"] - emb_min) / denom)
     sizes.append(s)
 
     hover.append(
       f"Member {n}"
       f"<br>Role: {role}"
-      f"<br>Confidence: {conf: .0%}"
+      f"<br>Confidence: {conf:.0%}"
+
     )
 
   fig.add_trace(go.Scatter(
@@ -161,7 +163,7 @@ with col2:
   st.markdown("---")
   votes = method_vote_for_node(node_id)
   st.markdown("**Method agreement:**")
-  st.daraframe(pd.DataFrame({"Method": list(votes.keys()), "Role label": list(votes.values())}), use_container_width=True, hide_index=True)
+  st.dataframe(pd.DataFrame({"Method": list(votes.keys()), "Role label": list(votes.values())}), use_container_width=True, hide_index=True)
   
                                     
                
