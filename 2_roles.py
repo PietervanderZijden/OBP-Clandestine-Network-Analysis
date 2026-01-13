@@ -196,7 +196,7 @@ with col2:
   st.markdown(f"**Member:** {node_id}")
   st.markdown(f"**Assigned role:** {row['role_name']}")
   st.progress(float(row["confidence"]))
-  st.caption(f"Confidence: {row['confidence']:.0%} (agreement acroos methods)")
+  st.caption(f"Confidence: {row['confidence']:.0%} (agreement across methods)")
   if row["confidence"] < 0.5:
     st.warning("Low agreement across methods. Treat this role as uncertain.")
   
