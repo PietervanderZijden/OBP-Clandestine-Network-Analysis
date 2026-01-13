@@ -232,40 +232,6 @@ with col2:
     )
 
 
-st.subheader("Members to review")
-
-def review_reason(role, conf, emb, emb_thr):
-    if conf < 0.5:
-        return "Uncertain role (methods disagree)"
-    if "Core-like" in role:
-        return "Highly central (high impact)"
-    if emb >= emb_thr:
-        return "Very embedded (many connections)"
-    return "Routine"
-
-emb_thr = df_display["embeddedness_score"].quantile(0.90)
-
-short = df_display.copy()
-short["reason"] = [
-    review_reason(r, c, e, emb_thr)
-    for r, c, e in zip(short["role_name"], short["confidence"], short["embeddedness_score"])
-]
-
-# prioritize: uncertain first, then core-like, then very embedded
-priority_order = {"Uncertain role (methods disagree)": 0,
-                  "Highly central (high impact)": 1,
-                  "Very embedded (many connections)": 2,
-                  "Routine": 3}
-
-short["priority"] = short["reason"].map(priority_order).fillna(9)
-
-shortlist = short.sort_values(["priority", "embeddedness_score"], ascending=[True, False]).head(20)
-
-st.dataframe(
-    shortlist[["node", "role_name", "confidence", "reason"]],
-    use_container_width=True,
-    hide_index=True
-)
 
   
 
