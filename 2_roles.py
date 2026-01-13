@@ -105,6 +105,29 @@ def role_explanation(role):
     return "Limited interactions; participates in few network pathways."
   return "Very few connections; likely isolated or inactive."
 
+
+def why_we_think_so(role: str) -> list[str]:
+    if "Core-like" in role:
+        return [
+            "Appears in many multi-step connection routes (high network presence).",
+            "Connects to members that are themselves highly active."
+        ]
+    if "Intermediate" in role:
+        return [
+            "Often sits between more central and more peripheral members.",
+            "Acts as a connector between parts of the network."
+        ]
+    if "Peripheral" in role:
+        return [
+            "Has few direct ties compared with most members.",
+            "Rarely part of longer connection routes."
+        ]
+    return [
+        "Has very few (or no) observable ties in the data.",
+        "Minimal network presence detected."
+    ]
+
+
 def plot_network(G, df_display):
   pos = nx.spring_layout(G, seed=42)
 
@@ -165,7 +188,7 @@ with col1:
   st.subheader("Role Map")
   st.plotly_chart(plot_network(G, df_display), use_container_width=True)
 with col2:
-  st.subheader("Member inspector")
+  st.subheader("Member inspection")
 
   node_id = st.selectbox("Select a member", df_display["node"].tolist(), index=0)
   row = df_display.loc[node_id]
@@ -180,22 +203,75 @@ with col2:
   st.caption(role_explanation(row["role_name"])) 
 
   st.markdown("---")
-  st.markdown("**Role signals (simple explanation):**")
-  st.write(f"- Indirect connectivity (embeddedness): **{row['embeddedness_score']:.2f}**")
-  st.write(f"- Incoming flow total: **{row['in_total']:.2f}**")
-  st.write(f"- Outgoing flow total: **{row['out_total']:.2f}**")
-  st.write(f"- Net flow (out - in): **{row['net_flow']:.2f}**")
+  st.markdown("**What this means**")
+  st.write(role_explanation(row["role_name"]))
 
-  st.markdown("---")
-  votes = method_vote_for_node(node_id)
-  st.markdown("**Method agreement:**")
-  st.dataframe(pd.DataFrame({"Method": list(votes.keys()), "Role label": list(votes.values())}), use_container_width=True, hide_index=True)
+  st.markdown("**Why we think so**")
+  for bullet in why_we_think_so(row["role_name"]):
+    st.write("• " + bullet)
 
-st.subheader("All members (search & sort)")
+  with st.expander("Show technical details"):
+    st.write(
+        f"Overall involvement in the network: **{row['embeddedness_score']:.2f}** "
+        "(how strongly this member is connected through direct and indirect links)"
+    )
+
+    st.write(
+        f"How often others reach this member: **{row['in_total']:.2f}** "
+        "(how much activity or attention flows *towards* them)"
+    )
+
+    st.write(
+        f"How often this member reaches others: **{row['out_total']:.2f}** "
+        "(how much activity or influence flows *from* them)"
+    )
+
+    st.write(
+        f"Balance of reaching out vs being reached: **{row['net_flow']:.2f}** "
+        "(positive = more outgoing, negative = more incoming)"
+    )
+
+
+st.subheader("Members to review")
+
+def review_reason(role, conf, emb, emb_thr):
+    if conf < 0.5:
+        return "Uncertain role (methods disagree)"
+    if "Core-like" in role:
+        return "Highly central (high impact)"
+    if emb >= emb_thr:
+        return "Very embedded (many connections)"
+    return "Routine"
+
+emb_thr = df_display["embeddedness_score"].quantile(0.90)
+
+short = df_display.copy()
+short["reason"] = [
+    review_reason(r, c, e, emb_thr)
+    for r, c, e in zip(short["role_name"], short["confidence"], short["embeddedness_score"])
+]
+
+# prioritize: uncertain first, then core-like, then very embedded
+priority_order = {"Uncertain role (methods disagree)": 0,
+                  "Highly central (high impact)": 1,
+                  "Very embedded (many connections)": 2,
+                  "Routine": 3}
+
+short["priority"] = short["reason"].map(priority_order).fillna(9)
+
+shortlist = short.sort_values(["priority", "embeddedness_score"], ascending=[True, False]).head(20)
+
 st.dataframe(
-  df_display.sort_values(["confidence","embeddedness_score"], ascending=[True, False]),
-    use_container_width=True
+    shortlist[["node", "role_name", "confidence", "reason"]],
+    use_container_width=True,
+    hide_index=True
 )
+
+  
+
+  
+
+
                                     
                
               
