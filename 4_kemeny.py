@@ -30,23 +30,40 @@ def random_walk_transition(A: sp.csr_matrix) -> sp.csr_matrix:
     return (sp.diags(inv_row) @ A).tocsr()
 
 
-def stationary_distribution_undirected(A: sp.csr_matrix) -> np.ndarray:
+def stationary_distribution(P: sp.csr_matrix,
+                            tol: float = 1e-12,
+                            max_iter: int = 200_000) -> np.ndarray:
     """
-    Stationary distribution for a simple random walk on an undirected graph.
-
-    For an undirected, connected graph with transition matrix P = D^{-1}A,
-    the Markov chain is reversible and satisfies detailed balance.
-    The unique stationary distribution is given in closed form by
-
-        pi_i = d_i / sum_k d_k,
-
-    where d_i is the degree of node i.
+    Compute stationary distribution pi numerically for a (finite) Markov chain.
+    We find pi such that pi = pi P, sum(pi)=1, pi>=0.
+    Numerically we run power iteration on P^T (equivalently on pi as a row vector).
+    Assumes:
+      - P is row-stochastic (rows sum to 1)
+      - chain is irreducible/ergodic in the component considered (or at least convergent)
     """
-    deg = np.array(A.sum(axis=1)).ravel().astype(float)
-    s = deg.sum()
-    if s <= 0:
-        raise ValueError("Invalid graph: sum of degrees is zero.")
-    return deg / s
+    if not sp.isspmatrix_csr(P):
+        P = P.tocsr()
+
+    n = P.shape[0]
+    # start from uniform distribution
+    pi = np.full(n, 1.0 / n, dtype=float)
+
+    PT = P.transpose().tocsr()
+
+    for _ in range(max_iter):
+        pi_next = PT @ pi  # column update for pi^T
+        s = pi_next.sum()
+        if s <= 0:
+            raise ValueError("Numerical issue: stationary vector sum <= 0.")
+        pi_next /= s
+
+        if np.linalg.norm(pi_next - pi, ord=1) < tol:
+            pi = pi_next
+            return pi_next
+
+        pi = pi_next
+
+    raise RuntimeError("stationary_distribution did not converge; check connectivity/aperiodicity.")
 
 
 def kemeny_constant(P: sp.csr_matrix, pi: np.ndarray) -> float:
@@ -65,7 +82,7 @@ def kemeny_constant(P: sp.csr_matrix, pi: np.ndarray) -> float:
 
 def compute_kemeny(A: sp.csr_matrix) -> float:
     P = random_walk_transition(A)
-    pi = stationary_distribution_undirected(A)
+    pi = stationary_distribution(A)
     return kemeny_constant(P, pi)
 
 
@@ -187,3 +204,4 @@ st.write(
 )
 if st.button("Reset (original network)"):
     st.experimental_rerun()
+
