@@ -43,6 +43,21 @@ df_dist = df_dist.set_index("node", drop=False)
 df_cent = df_cent.set_index("node", drop=False)
 df_overlap = df_overlap.set_index("node", drop=False)
 
+# Method selector
+method_ui = st.selectbox(
+    "Role method (choose how roles are defined)",
+    ["Flow-based (influence)", "Distance to core", "Centrality profile", "Neighborhood overlap"],
+    index=0
+)
+
+METHOD_KEY = {
+    "Flow-based (influence)": "Flow",
+    "Distance to core": "Distance",
+    "Centrality profile": "Centrality",
+    "Neighborhood overlap": "Overlap"
+}[method_ui]
+
+
 # flow based method for display; other methods are confidence indicators
 def method_vote_for_node(i: int) -> dict:
   votes = {}
@@ -79,20 +94,68 @@ def method_vote_for_node(i: int) -> dict:
 
 def confidence_for_node(i: int) -> float:
   votes = method_vote_for_node(i)
-  final_role = votes["Flow"]
-  agree = sum(v == final_role for v in votes.values())
+  ref = votes[METHOD_KEY]          # selected method becomes the reference
+  agree = sum(v == ref for v in votes.values())
   return agree / len(votes)
 
-df_display = df_flow[["node","role_name","embeddedness_score","in_total","out_total","net_flow"]].copy()
+def normalize_role_label(method_key: str, i: int) -> str:
+    """Return a role label in the SAME 4 categories, regardless of method."""
+    votes = method_vote_for_node(i)
+
+    if method_key == "Flow":
+        return votes["Flow"]
+
+    if method_key == "Distance":
+        dr = df_dist.loc[i, "distance_role"]
+        if dr == "High-degree Core":
+            return "Core-like (high embeddedness)"
+        elif dr == "Near high-degree core":
+            return "Intermediate (moderate embeddedness)"
+        elif dr == "Isolated":
+            return "Extreme peripheral / near isolated"
+        else:
+            return "Peripheral (low embeddedness)"
+
+    if method_key == "Centrality":
+        cr = df_cent.loc[i, "centrality_role_name"]
+        if cr in ["Hub-like", "Influential"]:
+            return "Core-like (high embeddedness)"
+        elif cr == "Bridge-like":
+            return "Intermediate (moderate embeddedness)"
+        else:
+            return "Peripheral (low embeddedness)"
+
+    # Overlap
+    deg = df_overlap.loc[i, "degree"]
+    if deg <= 1:
+        return "Extreme peripheral / near isolated"
+    elif deg <= np.median(df_overlap["degree"]):
+        return "Peripheral (low embeddedness)"
+    else:
+        return "Intermediate (moderate embeddedness)"
+
+
+# Display dataframe
+df_display = df_flow[["node","embeddedness_score","in_total","out_total","net_flow"]].copy()
 df_display = df_display.set_index("node", drop=False)
+
+# role label depends on selected method
+df_display["role_label"] = [normalize_role_label(METHOD_KEY, i) for i in df_display["node"]]
+
+# confidence depends on selected method
 df_display["confidence"] = [confidence_for_node(i) for i in df_display["node"]]
+
 
 
 c1, c2, c3 = st.columns(3)
 c1.metric(
-  "Core-like members", int((df_display["role_name"] == "Core-like (high embeddedness)").sum()))
-c2.metric("Peripheral members",
-          int((df_display["role_name"]=="Peripheral (low embeddedness)").sum()))
+  "Core-like members", int((df_display["role_label"] == "Core-like (high embeddedness)").sum())
+)
+c2.metric(
+  "Peripheral members",
+  int((df_display["role_label"] == "Peripheral (low embeddedness)").sum())
+)
+
 c3.metric("Avg. confidence",
           f"{df_display['confidence'].mean():.0%}")
 
@@ -161,7 +224,7 @@ def plot_network(G, df_display):
     x, y = pos[n]
     node_x.append(x); node_y.append(y)
 
-    role = df_display.loc[n,"role_name"]
+    role = df_display.loc[n,"role_label"]
     conf = df_display.loc[n, "confidence"]
     node_color.append(ROLE_COLORS.get(role, "#95a5a6"))
 
@@ -201,42 +264,59 @@ with col2:
   row = df_display.loc[node_id]
 
   st.markdown(f"**Member:** {node_id}")
-  st.markdown(f"**Assigned role:** {row['role_name']}")
+  st.markdown(f"**Assigned role:** {row['role_label']}")
   st.progress(float(row["confidence"]))
-  st.caption(f"Confidence: {row['confidence']:.0%} (agreement across methods)")
+  st.caption(f"Confidence: {row['confidence']:.0%} (agreement vs other methods)")
   if row["confidence"] < 0.5:
     st.warning("Low agreement across methods. Treat this role as uncertain.")
-  
-  st.caption(role_explanation(row["role_name"])) 
 
-  st.markdown("---")
-  st.markdown("**What this means**")
-  st.write(role_explanation(row["role_name"]))
-
-  st.markdown("**Why we think so**")
-  for bullet in why_we_think_so(row["role_name"]):
+  st.write(role_explanation(row["role_label"]))
+  for bullet in why_we_think_so(row["role_label"]):
     st.write("• " + bullet)
 
-  with st.expander("Show technical details"):
-    st.write(
-        f"Overall involvement in the network: **{row['embeddedness_score']:.2f}** "
-        "(how strongly this member is connected through direct and indirect links)"
-    )
+  st.caption("These are relative network indicators (use for comparison, not absolute interpretation).")
 
-    st.write(
-        f"How often others reach this member: **{row['in_total']:.2f}** "
-        "(how much activity or attention flows *towards* them)"
-    )
+  with st.expander("Evidence (advanced)"):
+    st.write(f"Selected method: **{method_ui}**")
+    
+    if METHOD_KEY == "Flow":
+        st.write("Flow view: looks at direct + indirect connections.")
+        st.write(f"Overall involvement: **{row['embeddedness_score']:.2f}**")
+        st.write(f"Reaches others: **{row['out_total']:.2f}** | Is reached: **{row['in_total']:.2f}**")
 
-    st.write(
-        f"How often this member reaches others: **{row['out_total']:.2f}** "
-        "(how much activity or influence flows *from* them)"
-    )
+    elif METHOD_KEY == "Distance":
+      d = df_dist.loc[node_id, "dist_to_core"]
+      st.write(f"Distance to core: **{d if np.isfinite(d) else '∞'}** (steps away from high-degree core)")
+    elif METHOD_KEY == "Centrality":
+      # Plain-language evidence (no jargon)
+      deg = float(df_cent.loc[node_id, "degree"])
+      btw = float(df_cent.loc[node_id, "betweenness"])
+      eig = float(df_cent.loc[node_id, "eigenvector"])
+      katz = float(df_cent.loc[node_id, "katz"])
 
-    st.write(
-        f"Balance of reaching out vs being reached: **{row['net_flow']:.2f}** "
-        "(positive = more outgoing, negative = more incoming)"
-    )
+      st.write(f"Connectivity (direct contacts): **{deg:.0f}**")
+
+      st.write(
+          f"Connector tendency: **{'High' if btw >= np.quantile(df_cent['betweenness'], 0.75) else 'Medium' if btw >= np.quantile(df_cent['betweenness'], 0.50) else 'Low'}** "
+          "(does this member often sit between groups?)"
+      )
+
+      st.write(
+          f"Overall influence signal: **{'High' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.75) else 'Medium' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.50) else 'Low'}** "
+          "(how strongly they connect to other influential members)"
+      )
+
+      with st.expander("Show centrality metrics (technical)"):
+          st.write(f"Betweenness: {btw:.4f}")
+          st.write(f"Eigenvector: {eig:.4f}")
+          st.write(f"Katz: {katz:.4f}")
+
+
+    elif METHOD_KEY == "Overlap":
+      st.write(f"Direct ties: **{df_overlap.loc[node_id, 'degree']:.0f}** (how many immediate contacts)")
+
+
+   
 
 
 
