@@ -8,8 +8,7 @@ networkx
 scipy
 numpy
 pandas
-scikit-learn
-
+infomap
 
 # Visualization 
 streamlit-agraph
