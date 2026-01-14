@@ -325,9 +325,6 @@ with col2:
       btw = float(df_cent.loc[node_id, "betweenness"])
       eig = float(df_cent.loc[node_id, "eigenvector"])
       katz = float(df_cent.loc[node_id, "katz"])
-
-      st.write(f"Connectivity (direct contacts): **{deg:.0f}**")
-
       st.write(
           f"Connector tendency (bridges groups): **{'High' if btw >= np.quantile(df_cent['betweenness'], 0.75) else 'Medium' if btw >= np.quantile(df_cent['betweenness'], 0.50) else 'Low'}**"
       )
@@ -344,7 +341,21 @@ with col2:
 
 
     elif METHOD_KEY == "Overlap":
-      st.write(f"Direct ties: **{df_overlap.loc[node_id, 'degree']:.0f}** (how many immediate contacts)")
+        deg = float(df_overlap.loc[node_id, "degree"])
+
+        # similarity proxy: degree relative to others
+        q50, q75 = np.quantile(df_overlap["degree"], [0.50, 0.75])
+        similarity_level = (
+            "High" if deg >= q75 else
+            "Medium" if deg >= q50 else
+            "Low"
+        )
+
+        st.write(f"Contact similarity (how typical this member's contacts are): **{similarity_level}** "
+        )
+
+    
+
 
 
    
