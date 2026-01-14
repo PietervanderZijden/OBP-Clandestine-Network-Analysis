@@ -27,6 +27,11 @@ def load_adjacency():
 A = load_adjacency()
 G = nx.from_scipy_sparse_array(A)
 
+def get_direct_contacts(G: nx.Graph, node_id: int) -> list[int]:
+    """Sorted list of direct neighbors (immediate contacts) for a node."""
+    return sorted(list(G.neighbors(int(node_id))))
+
+
 @st.cache_data
 def compute_roles(_A):
   return run_all_role_methods(_A)
@@ -45,17 +50,18 @@ df_overlap = df_overlap.set_index("node", drop=False)
 
 # Method selector
 method_ui = st.selectbox(
-    "Role method (choose how roles are defined)",
-    ["Flow-based (influence)", "Distance to core", "Centrality profile", "Neighborhood overlap"],
+    "Role method (choose perspective)",
+    ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
     index=0
 )
 
 METHOD_KEY = {
-    "Flow-based (influence)": "Flow",
-    "Distance to core": "Distance",
-    "Centrality profile": "Centrality",
-    "Neighborhood overlap": "Overlap"
+    "Influence (flow)": "Flow",
+    "Core distance": "Distance",
+    "Importance type": "Centrality",
+    "Similar contacts": "Overlap"
 }[method_ui]
+
 
 
 # flow based method for display; other methods are confidence indicators
@@ -262,6 +268,13 @@ with col2:
 
   node_id = st.selectbox("Select a member", df_display["node"].tolist(), index=0)
   row = df_display.loc[node_id]
+  contacts = get_direct_contacts(G, int(node_id))
+
+  with st.popover(f"Direct contacts ({len(contacts)})"):
+      if contacts:
+          st.write(", ".join(map(str, contacts)))
+      else:
+          st.write("No direct contacts in the data.")
 
   st.markdown(f"**Member:** {node_id}")
   st.markdown(f"**Assigned role:** {row['role_label']}")
@@ -280,9 +293,28 @@ with col2:
     st.write(f"Selected method: **{method_ui}**")
     
     if METHOD_KEY == "Flow":
-        st.write("Flow view: looks at direct + indirect connections.")
-        st.write(f"Overall involvement: **{row['embeddedness_score']:.2f}**")
-        st.write(f"Reaches others: **{row['out_total']:.2f}** | Is reached: **{row['in_total']:.2f}**")
+    
+      emb = float(row["embeddedness_score"])
+      outv = float(row["out_total"])
+      inv = float(row["in_total"])
+
+      emb_q50, emb_q75 = np.quantile(df_display["embeddedness_score"], [0.50, 0.75])
+      out_q50, out_q75 = np.quantile(df_display["out_total"], [0.50, 0.75])
+      in_q50,  in_q75  = np.quantile(df_display["in_total"],  [0.50, 0.75])
+
+      def level(x, q50, q75):
+          return "High" if x >= q75 else "Medium" if x >= q50 else "Low"
+
+      st.write("Flow view: combines direct + indirect connections.")
+      st.write(f"Overall involvement (relative): **{level(emb, emb_q50, emb_q75)}**")
+      st.write(f"Reaches others (relative): **{level(outv, out_q50, out_q75)}**")
+      st.write(f"Is reached by others (relative): **{level(inv, in_q50, in_q75)}**")
+
+      with st.expander("Show exact flow values (technical)"):
+          st.write(f"Embeddedness score: {emb:.2f}")
+          st.write(f"Out total: {outv:.2f}")
+          st.write(f"In total: {inv:.2f}")
+
 
     elif METHOD_KEY == "Distance":
       d = df_dist.loc[node_id, "dist_to_core"]
@@ -297,14 +329,13 @@ with col2:
       st.write(f"Connectivity (direct contacts): **{deg:.0f}**")
 
       st.write(
-          f"Connector tendency: **{'High' if btw >= np.quantile(df_cent['betweenness'], 0.75) else 'Medium' if btw >= np.quantile(df_cent['betweenness'], 0.50) else 'Low'}** "
-          "(does this member often sit between groups?)"
+          f"Connector tendency (bridges groups): **{'High' if btw >= np.quantile(df_cent['betweenness'], 0.75) else 'Medium' if btw >= np.quantile(df_cent['betweenness'], 0.50) else 'Low'}**"
       )
 
       st.write(
-          f"Overall influence signal: **{'High' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.75) else 'Medium' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.50) else 'Low'}** "
-          "(how strongly they connect to other influential members)"
+          f"Influence signal (connected to important members): **{'High' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.75) else 'Medium' if (eig + katz) >= np.quantile((df_cent['eigenvector'] + df_cent['katz']), 0.50) else 'Low'}**"
       )
+
 
       with st.expander("Show centrality metrics (technical)"):
           st.write(f"Betweenness: {btw:.4f}")
