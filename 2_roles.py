@@ -11,7 +11,7 @@ from roles_logic import run_all_role_methods
 st.set_page_config(layout="wide")
 apply_tactical_theme()
 
-st.title("ROLES // CLASSIFICATION")
+st.title("NETWORK ROLE IDENTIFICATION")
 st.caption("SOCIAL ROLE ANALYSIS ENGINE")
 st.info(
   "How to read: Colors = role type. Bigger nodes = more embedded in the network. "
