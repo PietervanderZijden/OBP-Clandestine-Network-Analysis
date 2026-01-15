@@ -69,6 +69,7 @@ if st.session_state.logged_in:
             st.Page("2_roles.py", title="Roles"),
             st.Page("src/3_factions.py", title="Factions"),
             st.Page("4_kemeny.py", title="Kemeny"),
+            st.Page("src/5_arrest_plan.py", title="Arrest Plan"),
             st.Page(logout_screen, title="Log out"),
         ]
     )
