@@ -5,11 +5,13 @@ argon2-cffi
 
 # Network Science & Math
 networkx
+igraph
 scipy
 numpy
 pandas
 infomap
-
+leidenalg
+scikit-learn
 # Visualization 
 streamlit-agraph
 pyvis
