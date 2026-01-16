@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Kemeny Constant DSS Page (Task 4)
 
 Features
