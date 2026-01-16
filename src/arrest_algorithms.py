@@ -181,13 +181,12 @@ def improve_with_greedy_moves(graph, assignment: Dict[Node, Dept], comm_id: Dict
 
 
 def improve_with_balanced_swaps(
-    G: nx.Graph,
+    graph,
     assignment: Dict[Node, Dept],
     comm_id: Dict[Node, int],
-    same_comm_multiplier: float = 2.0,
-    max_iters: int = 100,
-    candidate_k: int = 12
-) -> Dict[Node, Dept]:
+    same_comm_multiplier = 2.0,
+    max_iters = 100,
+    candidate_k = 12):
     """
     Swap-based refinement: swap one node in A with one node in B (keeps sizes fixed).
     We restrict to boundary nodes and consider top contributors to regret.
@@ -195,11 +194,11 @@ def improve_with_balanced_swaps(
 
     def boundary_nodes(dept: Dept) -> List[Node]:
         out = []
-        for u in G.nodes():
+        for u in graph.nodes():
             if assignment[u] != dept:
                 continue
             # boundary if it has a neighbor in the other dept
-            if any(assignment[v] != dept for v in G.neighbors(u)):
+            if any(assignment[v] != dept for v in graph.neighbors(u)):
                 out.append(u)
         return out
 
@@ -207,7 +206,7 @@ def improve_with_balanced_swaps(
         costs = []
         for u in nodes:
             c = 0.0
-            for v, data in G[u].items():
+            for v, data in graph[u].items():
                 if assignment[u] != assignment[v]:
                     w = float(data.get("weight", 1.0))
                     c += edge_penalty(u, v, w, comm_id, same_comm_multiplier)
@@ -223,15 +222,15 @@ def improve_with_balanced_swaps(
         best_dR = 0.0
 
         for u in A_nodes:
-            dR_u = delta_regret_if_flip(G, u, assignment, comm_id, same_comm_multiplier)
+            dR_u = delta_regret_if_flip(graph, u, assignment, comm_id, same_comm_multiplier)
             for v in B_nodes:
-                dR_v = delta_regret_if_flip(G, v, assignment, comm_id, same_comm_multiplier)
+                dR_v = delta_regret_if_flip(graph, v, assignment, comm_id, same_comm_multiplier)
 
                 dR_pair = dR_u + dR_v
 
                 #
-                if G.has_edge(u, v):
-                    w = float(G[u][v].get("weight", 1.0))
+                if graph.has_edge(u, v):
+                    w = float(graph[u][v].get("weight", 1.0))
                     w_eff = edge_penalty(u, v, w, comm_id, same_comm_multiplier)
                     dR_pair += 2.0 * w_eff
 
