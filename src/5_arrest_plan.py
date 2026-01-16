@@ -10,6 +10,7 @@ from src.arrest_algorithms import (
     compute_regret,
     improve_with_greedy_moves,
     improve_with_balanced_swaps,
+    run_part5_pipeline
 )
 
 FILE_PATH = "data/clandestine_network_example.mtx"
@@ -51,6 +52,11 @@ def build_agraph_by_dept(
     assignment: dict[int, int],
     layout_map: dict[int, tuple[float, float]],
 ):
+    #safety check
+    nodes_int = {int(n) for n in G.nodes()}
+    assign_int = {int(n) for n in assignment.keys()}
+    assert nodes_int == assign_int, "Assignment missing nodes or has extra nodes."
+
     nodes = []
     edges = []
 
@@ -92,8 +98,8 @@ def build_agraph_by_dept(
         width="100%",
         height=GRAPH_HEIGHT_PX,
         directed=False,
-        physics=True,
-        staticGraph=False,
+        physics=False,
+        staticGraph=True,
         nodeHighlightBehavior=True,
     )
 
@@ -102,68 +108,168 @@ def build_agraph_by_dept(
 
 
 
-#  pipeline runner
-def run_pipeline(graph, same_comm_multiplier, max_iters, candidate_k):
-    # communities + comm_id
-    communities = nx.community.louvain_communities(graph, seed=123, weight="weight")
-    comm_id = {}
-    for cid, comm in enumerate(communities):
-        for n in comm:
-            comm_id[int(n)] = int(cid)
 
-    cap = graph.number_of_nodes() // 2
-    init = community_first_assignment(graph, communities, capacity=cap)
-    assignment0 = init.assignment.copy()
-
-    R0 = compute_regret(graph, assignment0, comm_id, same_comm_multiplier)
-
-    assignment1 = improve_with_greedy_moves(
-        graph, assignment0.copy(), comm_id, cap, same_comm_multiplier, max_iters=max_iters
-    )
-    R1 = compute_regret(graph, assignment1, comm_id, same_comm_multiplier)
-
-    assignment2 = improve_with_balanced_swaps(
-        graph, assignment1.copy(), comm_id, same_comm_multiplier,
-        max_iters=max_iters, candidate_k=candidate_k
-    )
-    R2 = compute_regret(graph, assignment2, comm_id, same_comm_multiplier)
-
-    return {
-        "communities": communities,
-        "comm_id": comm_id,
-        "cap": cap,
-        "init_sizes": (init.sizeA, init.sizeB),
-        "R0": R0,
-        "R1": R1,
-        "R2": R2,
-        "assignment0": assignment0,
-        "assignment1": assignment1,
-        "assignment2": assignment2,
-    }
 
 
 
 # APP
 st.title("Part 5 — Department assignment dashboard")
 
+with st.expander("How to use this page", expanded=True):
+    st.markdown(
+        "1) Choose **Community detection** (how the network is grouped into factions).\n\n"
+        "2) Adjust the settings that appear (some options only show for certain methods).\n\n"
+        "3) Click **Run pipeline**.\n\n"
+        "4) Read the **Regret summary and the graph** — lower Regret is better and red edges are.\n"
+    )
+
+
 graph = load_graph_cached(FILE_PATH)
 N = graph.number_of_nodes()
+# st.write("Has edge (50,16)?", graph.has_edge(50, 16)) just testing
 
 st.sidebar.header("Controls")
-# height_px = st.sidebar.slider("Graph height", 400, 1000, 650, 50)
-same_comm_multiplier = st.sidebar.slider("Same-community penalty", 1.0, 5.0, 2.0, 0.5)
-max_iters = st.sidebar.slider("Max iterations (moves/swaps)", 10, 500, 100, 10)
-candidate_k = st.sidebar.slider("Swap candidate_k", 4, 31, 12, 1)
+st.sidebar.markdown("### Assignment settings")
+# st.sidebar.caption(
+#     "Choose how factions are detected and how strictly they are kept together "
+#     "when assigning members to departments."
+# )
 
-run_clicked = st.sidebar.button("Run pipeline", type="primary")
+community_method = st.sidebar.selectbox(
+    "Community detection",
+    ["Louvain", "Leiden", "Infomap", "Spectral", "Girvan-Newman"],
+    key="community_method",
+    help=(
+        "How the network is initially grouped into factions. "
+        "Louvain/Leiden find tightly connected groups. "
+        "Infomap follows information flow. "
+        "Spectral and Girvan–Newman create balanced structural splits."
+    ),
+)
+
+
+
+# method specific params
+resolution = 1.0
+k = 2
+assign_labels = "kmeans"
+two_level = True
+
+if community_method in ("Louvain", "Leiden"):
+    resolution = st.sidebar.slider(
+        "Community detail level",
+        0.2, 1.0, 0.4, 0.1,
+        key="resolution",
+        help=(
+            "Controls how detailed the detected factions are. "
+            "Lower values produce fewer, larger factions. "
+            "Higher values produce more, smaller factions."
+        ),
+    )
+
+elif community_method in ("Spectral", "Girvan-Newman"):
+    k = st.sidebar.slider(
+        "Number of factions",
+        2, 10, 2, 1,
+        key="k_factions",
+        help=(
+            "Forces the algorithm to split the network into exactly k groups. "
+            "Use small values for coarse splits, larger values for finer structure."
+        ),
+    )
+
+
+elif community_method == "Infomap":
+    two_level = st.sidebar.checkbox(
+        "Two-level structure",
+        value=True,
+        key="infomap_two_level",
+        help=(
+            "If enabled, Infomap produces a simpler, high-level grouping. "
+            "Disable to allow more detailed nested factions."
+        ),
+    )
+
+same_comm_multiplier = st.sidebar.slider(
+    "Same-community penalty",
+    1.0, 5.0, 2.0, 0.5,
+    key="same_comm_multiplier",
+    help=(
+        "How strongly connections inside the same faction are penalized "
+        "when members are placed in different departments. "
+        "Higher values keep factions together more strongly."
+    ),
+)
+
+
+max_iters = st.sidebar.slider(
+    "Optimization effort",
+    10, 500, 100, 10,
+    key="max_iters",
+    help=(
+        "How hard the system tries to improve the assignment. "
+        "Higher values may find better solutions but take longer."
+    ),
+)
+
+
+candidate_k = st.sidebar.slider(
+    "Swap search width",
+    4, 31, 12, 1,
+    key="candidate_k",
+    help=(
+        "How many high-risk members are considered when swapping departments. "
+        "Higher values explore more options but increase computation time."
+    ),
+)
+
+
+
+run_clicked = st.sidebar.button("Run pipeline", type="primary", key="p5_run")
+
+
+
+# height_px = st.sidebar.slider("Graph height", 400, 1000, 650, 50)
+# same_comm_multiplier = st.sidebar.slider("Same-community penalty", 1.0, 5.0, 2.0, 0.5)
+# max_iters = st.sidebar.slider("Max iterations (moves/swaps)", 10, 500, 100, 10)
+# candidate_k = st.sidebar.slider("Swap candidate_k", 4, 31, 12, 1)
+#
+# run_clicked = st.sidebar.button("Run pipeline", type="primary")
 
 if "result" not in st.session_state:
     st.session_state.result = None
 
+# if run_clicked:
+#     st.session_state.result = run_pipeline(
+#         graph, same_comm_multiplier=same_comm_multiplier, max_iters=max_iters, candidate_k=candidate_k
+#     )
+
+# if run_clicked:
+#     st.session_state.result = run_part5_pipeline(
+#         FILE_PATH,
+#         same_comm_multiplier=same_comm_multiplier,
+#         seed=123,
+#         max_move_iters=max_iters,
+#         max_swap_iters=max_iters,
+#         candidate_k=candidate_k,
+#     )
+
 if run_clicked:
-    st.session_state.result = run_pipeline(
-        graph, same_comm_multiplier=same_comm_multiplier, max_iters=max_iters, candidate_k=candidate_k
+    st.session_state.result = run_part5_pipeline(
+        FILE_PATH,
+        same_comm_multiplier=same_comm_multiplier,
+        seed=123,
+        max_move_iters=max_iters,
+        max_swap_iters=max_iters,
+        candidate_k=candidate_k,
+        community_method=community_method,
+        resolution=resolution,
+        k=k,
+        assign_labels=assign_labels,
+        two_level=two_level,
     )
+
+
 
 res = st.session_state.result
 
@@ -204,7 +310,7 @@ else:
     sizeB = (df["dept"] == "B").sum()
     st.write(f"Dept A: **{sizeA}**  |  Dept B: **{sizeB}**  |  Capacity target: **{res['cap']}**")
 
-    st.subheader("Communities (For now Louvain) summary")
+    st.subheader(f"Communities ({community_method}) summary")
     sizes = sorted([len(c) for c in res["communities"]], reverse=True)
     st.write(f"Number of communities: **{len(res['communities'])}**")
     st.write("Sizes:", sizes)
