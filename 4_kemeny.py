@@ -325,7 +325,7 @@ def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: Grap
                     color=COLOR_WIRE,
                     width=1,
                     opacity=0.6,
-                    type="curvedCW",
+                    type="STRAIGHT",
                 )
             )
     else:
@@ -346,7 +346,7 @@ def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: Grap
                     color=COLOR_WIRE,
                     width=1,
                     opacity=0.6,
-                    type="curvedCW",
+                    type="STRAIGHT",
                 )
             )
 
@@ -361,7 +361,7 @@ def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: Grap
                     color=COLOR_ALERT,
                     width=5,
                     opacity=0.55,
-                    type="curvedCW",
+                    type="sTRIAIGHT",
                 )
             )
 
@@ -371,15 +371,6 @@ def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: Grap
         directed=settings.directed,
         physics=False,
         staticGraph=True,
-        options={
-            "edges": {
-                "smooth": {
-                    "enabled": True,
-                    "type": "curvedCW",   # try also: "continuous", "curvedCW", "curvedCCW"
-                    "roundness": 0.25
-                }
-            }
-        }
     )
     agraph(nodes=nodes_viz, edges=edges_viz, config=cfg)
 
