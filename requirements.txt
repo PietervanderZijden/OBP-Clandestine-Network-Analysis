@@ -5,10 +5,13 @@ argon2-cffi==23.1.0
 
 # Network Science & Math
 networkx
+igraph
 scipy
 numpy
 pandas
-
+infomap
+leidenalg
+scikit-learn
 # Visualization 
 streamlit-agraph
 pyvis
