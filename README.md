@@ -9,7 +9,9 @@ This project uses a Conda environment to ensure reproducibility across systems
 
 ### Setup
 ```bash
-conda env create -f environment.yml
+conda env create -f environment.yml #first time only
+```
+```bash
 conda activate obp-dss
 streamlit run app.py
 ```
