@@ -1,7 +1,7 @@
 # Core Framework
 streamlit
 watchdog
-argon2-cffi
+argon2-cffi==23.1.0
 
 # Network Science & Math
 networkx
