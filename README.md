@@ -12,3 +12,6 @@ This project uses a Conda environment to ensure reproducibility across systems
 conda env create -f environment.yml
 conda activate obp-dss
 streamlit run app.py
+
+### Note
+If you encounter missing-module errors with venv + pip, please use Conda.
