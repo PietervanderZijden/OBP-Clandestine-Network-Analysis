@@ -106,6 +106,19 @@ def build_agraph_by_dept(
     return agraph(nodes=nodes, edges=edges, config=config)
 
 
+def communities_split_summary(communities, assignment: dict[int, int]) -> pd.DataFrame:
+    rows = []
+    for cid, comm in enumerate(communities):
+        depts = {assignment[int(u)] for u in comm}
+        rows.append({
+            "community": cid,
+            "size": len(comm),
+            "in_A": sum(1 for u in comm if assignment[int(u)] == 0),
+            "in_B": sum(1 for u in comm if assignment[int(u)] == 1),
+            "split_across_depts": len(depts) > 1,
+        })
+    df = pd.DataFrame(rows).sort_values(["split_across_depts", "size"], ascending=[False, False]).reset_index(drop=True)
+    return df
 
 
 
@@ -115,7 +128,7 @@ def build_agraph_by_dept(
 # APP
 st.title("Part 5 — Department assignment dashboard")
 import inspect
-st.write("Pipeline signature:", inspect.signature(run_part5_pipeline))
+# st.write("Pipeline signature:", inspect.signature(run_part5_pipeline))
 
 with st.expander("How to use this page", expanded=True):
     st.markdown(
@@ -305,7 +318,6 @@ else:
 
     st.subheader("Assignment table")
     df = assignment_to_df(res["assignment2"])
-    st.dataframe(df, use_container_width=True)
 
     st.subheader("Department sizes")
     sizeA = (df["dept"] == "A").sum()
@@ -316,3 +328,19 @@ else:
     sizes = sorted([len(c) for c in res["communities"]], reverse=True)
     st.write(f"Number of communities: **{len(res['communities'])}**")
     st.write("Sizes:", sizes)
+
+    st.subheader("Assignment quality checks")
+
+    cross_edges = sum(1 for u, v in graph.edges() if res["assignment2"][int(u)] != res["assignment2"][int(v)])
+    total_edges = graph.number_of_edges()
+    pct_cross = 0.0 if total_edges == 0 else 100.0 * cross_edges / total_edges
+
+    st.write(f"- Cross-department links: **{cross_edges}/{total_edges}** (**{pct_cross:.1f}%**)")
+    st.write(f"- Total regret (penalized cross links): **{res['R2']:.2f}**")
+
+    df_split = communities_split_summary(res["communities"], res["assignment2"])
+    st.write(
+        f"- Communities split across departments: **{df_split['split_across_depts'].sum()} / {len(res['communities'])}**")
+
+    st.dataframe(df, use_container_width=True)
+
