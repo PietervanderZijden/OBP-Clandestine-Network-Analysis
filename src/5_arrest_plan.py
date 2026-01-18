@@ -316,7 +316,6 @@ else:
         layout_map=layout_map,
     )
 
-    st.subheader("Assignment table")
     df = assignment_to_df(res["assignment2"])
 
     st.subheader("Department sizes")
@@ -342,5 +341,6 @@ else:
     st.write(
         f"- Communities split across departments: **{df_split['split_across_depts'].sum()} / {len(res['communities'])}**")
 
+    st.subheader("Assignment table")
     st.dataframe(df, use_container_width=True)
 
