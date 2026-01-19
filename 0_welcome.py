@@ -19,10 +19,9 @@ with col_status:
     """, unsafe_allow_html=True)
 
 st.divider()
-st.markdown("### Welcome, Analyst")
 
 with st.container():
-    st.markdown("### WELCOME, ANALYST")
+    st.markdown("### Welcome, Analyst")
     st.markdown(
         "<div style='margin-left: 6px;'>"
         "You are working with a decision support system for analyzing clandestine communication networks "
