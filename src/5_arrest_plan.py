@@ -135,12 +135,16 @@ with st.expander("How to use this page", expanded=True):
         "1) Choose **Community detection** (how the network is grouped into factions).\n\n"
         "2) Adjust the settings that appear (some options only show for certain methods).\n\n"
         "3) Click **Run pipeline**.\n\n"
-        "4) Read the **Regret summary and the graph** — lower Regret is better and red edges are.\n"
+        "4) Read the **Regret summary and the graph** — lower Regret is better and red edges are showing warning connections across departments.\n"
     )
 
 
 graph = load_graph_cached(FILE_PATH)
 N = graph.number_of_nodes()
+M = graph.number_of_edges()
+
+cap_now = (N + 1) // 2
+
 # st.write("Has edge (50,16)?", graph.has_edge(50, 16)) just testing
 
 st.sidebar.header("Controls")
@@ -217,24 +221,54 @@ same_comm_multiplier = st.sidebar.slider(
 )
 
 
+# max_iters = st.sidebar.slider(
+#     "Optimization effort",
+#     10, 500, 100, 10,
+#     key="max_iters",
+#     help=(
+#         "How hard the system tries to improve the assignment. "
+#         "Higher values may find better solutions but take longer."
+#     ),
+# )
+#
+#
+# candidate_k = st.sidebar.slider(
+#     "Swap search width",
+#     4, 31, 12, 1,
+#     key="candidate_k",
+#     help=(
+#         "How many high-risk members are considered when swapping departments. "
+#         "Higher values explore more options but increase computation time."
+#     ),
+# )
+
+# graph-aware slider ranges + defaults
+max_iters_min = 10
+max_iters_max = max(200, min(2000, 30 * N))          # grows with N, capped
+default_max_iters = max(50, min(max_iters_max, 10 * N))
+
+candidate_k_min = 4
+candidate_k_max = max(8, min(cap_now, N - 1))        # never > cap, never > N-1
+default_candidate_k = max(8, min(candidate_k_max, max(4, N // 5)))
+
 max_iters = st.sidebar.slider(
     "Optimization effort",
-    10, 500, 100, 10,
+    max_iters_min, max_iters_max, default_max_iters, 10,
     key="max_iters",
     help=(
-        "How hard the system tries to improve the assignment. "
-        "Higher values may find better solutions but take longer."
+        "How many improvement attempts the system is allowed to make. "
+        "Higher values may find a better plan but take longer. "
+        "Stops early if no improvements are possible."
     ),
 )
 
-
 candidate_k = st.sidebar.slider(
     "Swap search width",
-    4, 31, 12, 1,
+    candidate_k_min, candidate_k_max, default_candidate_k, 1,
     key="candidate_k",
     help=(
-        "How many high-risk members are considered when swapping departments. "
-        "Higher values explore more options but increase computation time."
+        "How many high-risk people are considered as swap candidates. "
+        "Higher values explore more options but take longer."
     ),
 )
 
@@ -301,10 +335,26 @@ if res is None:
     )
 else:
     st.subheader("Regret summary")
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     col1.metric("Initial regret (R0)", f"{res['R0']:.2f}")
-    col2.metric("After moves (R1)", f"{res['R1']:.2f}")
-    col3.metric("After swaps (R2)", f"{res['R2']:.2f}")
+    # col2.metric("After moves (R1)", f"{res['R1']:.2f}")
+    col2.metric("After swaps (R1)", f"{res['R2']:.2f}")
+
+    with st.expander("What does “Regret” mean?", expanded=False):
+        st.markdown(
+            "**Regret = warning risk score (lower is better).**  \n"
+            "A link becomes risky when its two endpoints are assigned to different departments.\n\n"
+            "**Score:**\n"
+            "- $E$: set of edges (communication links)\n"
+            "- $w_{ij}$: risk weight for link $(i,j)$ (increased by **Same-community penalty** when $i$ and $j$ are in the same detected faction)\n"
+            "- $d_i$: department of person $i$ (A or B)\n"
+            "- $\\mathbf{1}[d_i \\neq d_j]$: 1 if split across departments else 0\n\n"
+            "**Pipeline scores:**\n"
+            "- **$R0$**: after initial community-based assignment\n"
+            "- **$R1$**: after balanced swaps (A↔B), keeps sizes fixed and usually improves further"
+        )
+        st.latex(r"R = \sum_{(i,j)\in E} w_{ij}\,\mathbf{1}[d_i \neq d_j]")
+
 
     st.subheader("Graph (colored by Dept)")
     # html = build_pyvis_html_by_dept(graph, assignment=res["assignment2"], height_px=GRAPH_HEIGHT_PX )
@@ -335,7 +385,7 @@ else:
     pct_cross = 0.0 if total_edges == 0 else 100.0 * cross_edges / total_edges
 
     st.write(f"- Cross-department links: **{cross_edges}/{total_edges}** (**{pct_cross:.1f}%**)")
-    st.write(f"- Total regret (penalized cross links): **{res['R2']:.2f}**")
+    st.write(f"- Final regret (penalized cross links): **{res['R2']:.2f}**")
 
     df_split = communities_split_summary(res["communities"], res["assignment2"])
     st.write(
