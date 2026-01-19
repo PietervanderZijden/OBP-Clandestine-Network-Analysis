@@ -12,9 +12,11 @@ pandas
 infomap
 leidenalg
 scikit-learn
+
 # Visualization 
 streamlit-agraph
 pyvis
 matplotlib
 streamlit-option-menu
 plotly
+streamlit-plotly-events2==0.0.7
