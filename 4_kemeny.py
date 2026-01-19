@@ -9,7 +9,7 @@ Features
     * otherwise on the largest connected component (LCC) / largest strongly connected component (LSCC)
 - Stateful multi-edge removal.
 - Objective-aware recommendations (Disrupt vs Improve) and component-shrink suggestions.
-- Read-only graph visualization (edges disappear or show faded when removed).
+- Read-only graph visualization (now **3D Plotly**).
 
 Notes
 - The main control for removals is the edge table (robust). The graph view is visual only.
@@ -26,8 +26,6 @@ import networkx as nx
 import streamlit as st
 from scipy.io import mmread
 from scipy.sparse.csgraph import connected_components
-
-from streamlit_agraph import agraph, Node, Edge, Config
 
 from ui_components import (
     apply_tactical_theme,
@@ -270,109 +268,198 @@ def remaining_edges_df_from_edges0(edges0: list[tuple[int, int]], removed_set: s
 
 
 # -------------------------
-# Visualization (read-only graph)
+# Visualization (3D, read-only)
 # -------------------------
 @st.cache_data(show_spinner=False)
-def fixed_layout_from_A(A_data, A_indices, A_indptr, shape, seed: int = 42) -> dict[int, tuple[float, float]]:
-    """Fixed 2D layout for baseline graph. Uses an undirected view for stable positions."""
+def fixed_layout3d_from_A(A_data, A_indices, A_indptr, shape, seed: int = 42) -> dict[int, tuple[float, float, float]]:
+    """Fixed 3D layout for the baseline graph.
+
+    We compute positions once on the baseline (undirected view for stability), then reuse
+    them for every rerun so nodes don't jump around when edges are removed.
+    """
     A = sp.csr_matrix((A_data, A_indices, A_indptr), shape=shape)
-    # undirected view for layout
+
+    # Undirected view for layout stability
     Au = (A + A.T) * 0.5
     Au = Au.tocsr()
     Au.setdiag(0.0)
     Au.eliminate_zeros()
+
     G = nx.from_scipy_sparse_array(Au)
-    pos = nx.spring_layout(G, seed=seed, k=1.2)
-    return {int(n): (float(x) * 1000.0, float(y) * 1000.0) for n, (x, y) in pos.items()}
+
+    # Spring layout in 3D is stable for small graphs; dim=3 gives (x, y, z).
+    pos = nx.spring_layout(G, seed=seed, k=1.2, dim=3)
+
+    # Scale up so the 3D plot isn't cramped.
+    return {int(n): (float(x) * 1000.0, float(y) * 1000.0, float(z) * 1000.0) for n, (x, y, z) in pos.items()}
 
 
-def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: GraphSettings):
-    st.subheader("Network view (current state)")
+def _edge_segments_from_adjacency(
+    A: sp.csr_matrix,
+    directed: bool,
+    layout3d: dict[int, tuple[float, float, float]],
+) -> tuple[list[float], list[float], list[float]]:
+    """Return x/y/z arrays suitable for a single Plotly line trace (with None separators)."""
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    coo = A.tocoo()
+
+    if directed:
+        for u, v in zip(coo.row, coo.col):
+            u = int(u)
+            v = int(v)
+            if u == v:
+                continue
+            x0, y0, z0 = layout3d.get(u, (0.0, 0.0, 0.0))
+            x1, y1, z1 = layout3d.get(v, (0.0, 0.0, 0.0))
+            xs += [x0, x1, None]
+            ys += [y0, y1, None]
+            zs += [z0, z1, None]
+        return xs, ys, zs
+
+    # Undirected: keep each edge once (u < v)
+    seen: set[tuple[int, int]] = set()
+    for u, v in zip(coo.row, coo.col):
+        u = int(u)
+        v = int(v)
+        if u == v:
+            continue
+        a, b = (u, v) if u < v else (v, u)
+        if (a, b) in seen:
+            continue
+        seen.add((a, b))
+        x0, y0, z0 = layout3d.get(a, (0.0, 0.0, 0.0))
+        x1, y1, z1 = layout3d.get(b, (0.0, 0.0, 0.0))
+        xs += [x0, x1, None]
+        ys += [y0, y1, None]
+        zs += [z0, z1, None]
+    return xs, ys, zs
+
+
+def render_graph_panel_3d(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: GraphSettings) -> None:
+    """3D read-only visualization of the current graph state."""
+    st.subheader("Network view (current state) — 3D")
+    st.caption("Drag to rotate, scroll to zoom, double-click to reset view.")
     show_removed = st.checkbox("Show removed edges (faded)", value=False)
 
-    # Prepare layout (baseline)
-    layout = fixed_layout_from_A(A0.data, A0.indices, A0.indptr, A0.shape)
+    try:
+        import plotly.graph_objects as go
+    except Exception as e:
+        st.error("Plotly is required for the 3D graph. Install with: pip install plotly")
+        st.exception(e)
+        return
+
+    # Fixed 3D layout from baseline
+    layout3d = fixed_layout3d_from_A(A0.data, A0.indices, A0.indptr, A0.shape)
 
     n = A_state.shape[0]
-    nodes_viz: list[Node] = []
-    for i in range(n):
-        x, y = layout.get(i, (0.0, 0.0))
-        nodes_viz.append(
-            Node(
-                id=str(i),
-                label=str(i),
-                x=x,
-                y=y,
-                size=18,
-                color=COLOR_STEEL,
-                font={"color": "white", "face": "monospace", "size": 14},
-            )
-        )
 
-    # Active edges from current adjacency
-    edges_viz: list[Edge] = []
-    coo = A_state.tocoo()
-    if settings.directed:
-        for u, v in zip(coo.row, coo.col):
-            u = int(u)
-            v = int(v)
-            if u == v:
-                continue
-            edges_viz.append(
-                Edge(
-                    source=str(u),
-                    target=str(v),
-                    color=COLOR_WIRE,
-                    width=1,
-                    opacity=0.6,
-                    type="STRAIGHT",
-                )
-            )
-    else:
-        seen: set[tuple[int, int]] = set()
-        for u, v in zip(coo.row, coo.col):
-            u = int(u)
-            v = int(v)
-            if u == v:
-                continue
-            a, b = (u, v) if u < v else (v, u)
-            if (a, b) in seen:
-                continue
-            seen.add((a, b))
-            edges_viz.append(
-                Edge(
-                    source=str(a),
-                    target=str(b),
-                    color=COLOR_WIRE,
-                    width=1,
-                    opacity=0.6,
-                    type="STRAIGHT",
-                )
-            )
+    # Degree for hover text (computed on the current STATE graph)
+    G_state_local = build_nx_graph(A_state, directed=settings.directed)
+    degree_map = dict(G_state_local.degree())
+
+    node_x: list[float] = []
+    node_y: list[float] = []
+    node_z: list[float] = []
+    node_text: list[str] = []
+
+    for i in range(n):
+        x, y, z = layout3d.get(i, (0.0, 0.0, 0.0))
+        node_x.append(x)
+        node_y.append(y)
+        node_z.append(z)
+        node_text.append(f"Node {i+1}<br>Degree: {degree_map.get(i, 0)}")
+
+    # Active edges as one line trace
+    ex, ey, ez = _edge_segments_from_adjacency(A_state, directed=settings.directed, layout3d=layout3d)
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter3d(
+            x=ex,
+            y=ey,
+            z=ez,
+            mode="lines",
+            line=dict(color=COLOR_WIRE, width=2),
+            hoverinfo="skip",
+            opacity=0.55,
+        )
+    )
 
     # Removed edges (optional, faded)
     if show_removed:
         removed_set = st.session_state.get("removed_set", set())
+        rx: list[float] = []
+        ry: list[float] = []
+        rz: list[float] = []
         for (u, v) in removed_set:
-            edges_viz.append(
-                Edge(
-                    source=str(int(u)),
-                    target=str(int(v)),
-                    color=COLOR_ALERT,
-                    width=5,
-                    opacity=0.55,
-                    type="sTRIAIGHT",
+            u = int(u)
+            v = int(v)
+            if u == v:
+                continue
+            x0, y0, z0 = layout3d.get(u, (0.0, 0.0, 0.0))
+            x1, y1, z1 = layout3d.get(v, (0.0, 0.0, 0.0))
+            rx += [x0, x1, None]
+            ry += [y0, y1, None]
+            rz += [z0, z1, None]
+
+        if rx:
+            fig.add_trace(
+                go.Scatter3d(
+                    x=rx,
+                    y=ry,
+                    z=rz,
+                    mode="lines",
+                    line=dict(color=COLOR_ALERT, width=6),
+                    hoverinfo="skip",
+                    opacity=0.35,
                 )
             )
 
-    cfg = Config(
-        width=1100,
-        height=520,
-        directed=settings.directed,
-        physics=False,
-        staticGraph=True,
+    # Nodes on top
+    fig.add_trace(
+        go.Scatter3d(
+            x=node_x,
+            y=node_y,
+            z=node_z,
+            mode="markers+text",
+            text=[str(i+1) for i in range(n)],
+            textposition="top center",
+            marker=dict(size=6, color=COLOR_STEEL),
+            hovertext=node_text,
+            hoverinfo="text",
+        )
     )
-    agraph(nodes=nodes_viz, edges=edges_viz, config=cfg)
+
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=False,
+        # Preserve camera when Streamlit reruns (e.g., after removing an edge)
+        uirevision="kemeny-3d",
+        paper_bgcolor="#d9d9d9",
+        plot_bgcolor="#d9d9d9",
+        scene=dict(
+            bgcolor="#d9d9d9",
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            zaxis=dict(visible=False),
+            aspectmode="data",
+        ),
+        height=750,
+        
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"displaylogo": False, "scrollZoom": True},
+    )
+
+#---helper for node display numbering
+def show_node(i: int) -> int:
+    return int(i) + 1
 
 
 # -------------------------
@@ -380,6 +467,7 @@ def render_graph_panel(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: Grap
 # -------------------------
 apply_tactical_theme()
 
+st.set_page_config(layout="wide")
 st.title("Kemeny Constant — Edge Removal Analysis")
 st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports directed/weighted graphs.")
 
@@ -444,161 +532,164 @@ with kcol2:
     st.metric("Current Kemeny constant", f"{K_now:.6f}", delta=f"{(K_now - K0):+.6f}")
 
 
-# Graph panel (read-only)
-render_graph_panel(A0=A0, A_state=A_state, settings=settings)
+# Graph panel (read-only) — 3D
+render_graph_panel_3d(A0=A0, A_state=A_state, settings=settings)
 
 st.write("**Removed edges (ordered):**")
 if st.session_state.removed_edges:
-    st.code("\n".join([str(e) for e in st.session_state.removed_edges]), language=None)
+    pretty = [f"({u+1}, {v+1})" for (u, v) in st.session_state.removed_edges]
+    st.markdown(" ".join([f"`{e}`" for e in pretty]))
 else:
     st.caption("(none)")
 
 
+with st.sidebar:
+    st.subheader("Remove communication links (toggle)")
+    st.caption("Tick an edge to remove it. Untick to restore it. (IDs shown 1-based; internal math stays 0-based.)")
 
-# Two-column layout: left selection, right recommendations
-left, right = st.columns([0.6, 1.4], gap="large")
+    # Build a stable full list of edges (0-based internally)
+    edges_all = pd.DataFrame(edges0, columns=["u", "v"])
+    edges_all["u_show"] = edges_all["u"] + 1
+    edges_all["v_show"] = edges_all["v"] + 1
 
-with left:
-    st.subheader("Remove a communication link (table selection)")
-    st.caption("Select an edge to remove. The graph above updates; recommendations update on the right.")
+    # Checkbox state based on current removed_set
+    edges_all["Removed"] = [(e in st.session_state.removed_set) for e in edges0]
 
-    edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
-    if edges_df.empty:
-        st.info("No edges left to remove.")
-    else:
-        event = st.dataframe(
-            edges_df,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            height=900,
-        )
-        sel = event.selection.get("rows", [])
-        if sel:
-            idx = sel[0]
-            u = int(edges_df.loc[idx, "u"])
-            v = int(edges_df.loc[idx, "v"])
-            e = normalize_edge(u, v, directed=settings.directed)
+    # Display editor (show only the 1-based columns + checkbox)
+    edited = st.data_editor(
+        edges_all[["u_show", "v_show", "Removed"]],
+        use_container_width=True,
+        hide_index=True,
+        key="edge_editor",
+        column_config={
+            "u_show": st.column_config.NumberColumn("u", disabled=True),
+            "v_show": st.column_config.NumberColumn("v", disabled=True),
+            "Removed": st.column_config.CheckboxColumn("Removed ✅"),
+        },
+        height=450,   # sidebar-friendly; increase if you want
+    )
 
-            if e not in st.session_state.removed_set:
-                st.session_state.removed_set.add(e)
+    # ---- Sync logic: update removed_set + removed_edges order ----
+    old_set = set(st.session_state.removed_set)
+
+    # IMPORTANT: row i corresponds to edges0[i]
+    new_set = {edges0[i] for i, flag in enumerate(edited["Removed"].tolist()) if bool(flag)}
+
+    added = new_set - old_set
+    removed = old_set - new_set
+
+    if added or removed:
+        # Update set
+        st.session_state.removed_set = new_set
+
+        # Maintain an "ordered history" list, but allow deletions
+        # Add in table order (stable)
+        for e in edges0:
+            if e in added:
                 st.session_state.removed_edges.append(e)
-                st.rerun()
+
+        # Remove unchecked edges from the history list (keep order of the rest)
+        if removed:
+            st.session_state.removed_edges = [e for e in st.session_state.removed_edges if e not in removed]
+
+        st.rerun()
 
 
 
-    b1, b2 = st.columns(2)
-    with b1:
-        if st.button(
-            "Undo last removal",
-            use_container_width=True,
-            disabled=(len(st.session_state.removed_edges) == 0),
-        ):
-            last = st.session_state.removed_edges.pop()
-            st.session_state.removed_set.remove(last)
-            st.rerun()
-    with b2:
-        if st.button("Reset (original network)", use_container_width=True):
-            st.session_state.removed_edges = []
-            st.session_state.removed_set = set()
-            st.rerun()
+st.subheader("Next-step recommendations (Top 5)")
 
+objective = st.radio(
+    "Objective",
+    ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
+    horizontal=True,
+    index=0,
+)
+want_disrupt = objective.startswith("Disrupt")
 
-with right:
-    st.subheader("Next-step recommendations (Top 5)")
+st.caption(
+    "Recommendations are computed for the NEXT removal given the current removed set. "
+    "K is always computed on Full graph if possible; otherwise on LCC/LSCC."
+)
 
-    objective = st.radio(
-        "Objective",
-        ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
-        horizontal=True,
-        index=0,
+# Candidate edges
+edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
+if edges_df.empty:
+    st.info("No candidates remaining.")
+else:
+    rows = []
+    # Evaluate each candidate as next removal
+    for _, r in edges_df.iterrows():
+        e = (int(r["u"]), int(r["v"]))
+        e = normalize_edge(e[0], e[1], directed=settings.directed)
+
+        removed_next = set(st.session_state.removed_set)
+        removed_next.add(e)
+
+        A_next = apply_edge_removals(A0, removed_next, directed=settings.directed)
+        scope_next, K_next, n_next = kemeny_score(
+            A_next, directed=settings.directed, lazy_alpha=settings.lazy_alpha
+        )
+
+        rows.append(
+            {
+                "u": e[0],
+                "v": e[1],
+                "K_next": float(K_next),
+                "dK_next": float(K_next - K_now),
+                "dK_vs_K0": float(K_next - K0),
+                "scope_next": scope_next,
+                "comp_size_next": int(n_next),
+            }
+        )
+
+    df = pd.DataFrame(rows)
+
+    # Sort for recommendation direction
+    df_sorted = df.sort_values("dK_next", ascending=(not want_disrupt))
+    df_reco = df_sorted.head(5)
+    df_opp = df_sorted.tail(5).sort_values("dK_next", ascending=(not want_disrupt))
+
+    # Component shrink list (useful when removals isolate nodes)
+    df_shrink = df.sort_values(["comp_size_next", "dK_next"], ascending=[True, False]).head(5)
+
+    reco_title = "Recommended next edges" + (" (increase K most)" if want_disrupt else " (decrease K most)")
+    opp_title = "Opposite-effect edges" + (" (decrease K most)" if want_disrupt else " (increase K most)")
+
+    st.markdown(f"**{reco_title}**")
+    st.dataframe(
+        df_reco[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
+        hide_index=True,
+        use_container_width=True,
     )
-    want_disrupt = objective.startswith("Disrupt")
 
-    st.caption(
-        "Recommendations are computed for the NEXT removal given the current removed set. "
-        "K is always computed on Full graph if possible; otherwise on LCC/LSCC."
+    st.markdown(f"**{opp_title}**")
+    st.dataframe(
+        df_opp[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
+        hide_index=True,
+        use_container_width=True,
     )
 
-    # Candidate edges
-    edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
-    if edges_df.empty:
-        st.info("No candidates remaining.")
-    else:
-        rows = []
-        # Evaluate each candidate as next removal
-        for _, r in edges_df.iterrows():
-            e = (int(r["u"]), int(r["v"]))
-            e = normalize_edge(e[0], e[1], directed=settings.directed)
+    st.markdown("**Edges most likely to isolate actors / shrink the main component**")
+    st.dataframe(
+        df_shrink[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
+        hide_index=True,
+        use_container_width=True,
+    )
 
-            removed_next = set(st.session_state.removed_set)
-            removed_next.add(e)
+# Interpretation (objective-aware)
+st.subheader("Interpretation")
+if want_disrupt:
+    st.write(
+        "- **Positive dK**: communication becomes slower (desired for disruption).\n"
+        "- **Negative dK**: communication becomes faster (opposite of disruption).\n"
+        "- **Smaller component size**: isolates actors / fragments the network."
+    )
+else:
+    st.write(
+        "- **Negative dK**: communication becomes faster (desired for improvement).\n"
+        "- **Positive dK**: communication becomes slower (opposite of improvement).\n"
+        "- **Smaller component size**: indicates fragmentation (usually undesirable)."
+    )
 
-            A_next = apply_edge_removals(A0, removed_next, directed=settings.directed)
-            scope_next, K_next, n_next = kemeny_score(
-                A_next, directed=settings.directed, lazy_alpha=settings.lazy_alpha
-            )
+st.divider()    
 
-            rows.append(
-                {
-                    "u": e[0],
-                    "v": e[1],
-                    "K_next": float(K_next),
-                    "dK_next": float(K_next - K_now),
-                    "dK_vs_K0": float(K_next - K0),
-                    "scope_next": scope_next,
-                    "comp_size_next": int(n_next),
-                }
-            )
-
-        df = pd.DataFrame(rows)
-
-        # Sort for recommendation direction
-        df_sorted = df.sort_values("dK_next", ascending=(not want_disrupt))
-        df_reco = df_sorted.head(5)
-        df_opp = df_sorted.tail(5).sort_values("dK_next", ascending=(not want_disrupt))
-
-        # Component shrink list (useful when removals isolate nodes)
-        df_shrink = df.sort_values(["comp_size_next", "dK_next"], ascending=[True, False]).head(5)
-
-        reco_title = "Recommended next edges" + (" (increase K most)" if want_disrupt else " (decrease K most)")
-        opp_title = "Opposite-effect edges" + (" (decrease K most)" if want_disrupt else " (increase K most)")
-
-        st.markdown(f"**{reco_title}**")
-        st.dataframe(
-            df_reco[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
-            hide_index=True,
-            use_container_width=True,
-        )
-
-        st.markdown(f"**{opp_title}**")
-        st.dataframe(
-            df_opp[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
-            hide_index=True,
-            use_container_width=True,
-        )
-
-        st.markdown("**Edges most likely to isolate actors / shrink the main component**")
-        st.dataframe(
-            df_shrink[["u", "v", "comp_size_next", "dK_next", "dK_vs_K0", "K_next", "scope_next"]],
-            hide_index=True,
-            use_container_width=True,
-        )
-
-    # Interpretation (objective-aware)
-    st.subheader("Interpretation")
-    if want_disrupt:
-        st.write(
-            "- **Positive dK**: communication becomes slower (desired for disruption).\n"
-            "- **Negative dK**: communication becomes faster (opposite of disruption).\n"
-            "- **Smaller component size**: isolates actors / fragments the network."
-        )
-    else:
-        st.write(
-            "- **Negative dK**: communication becomes faster (desired for improvement).\n"
-            "- **Positive dK**: communication becomes slower (opposite of improvement).\n"
-            "- **Smaller component size**: indicates fragmentation (usually undesirable)."
-        )
-
-st.divider()
