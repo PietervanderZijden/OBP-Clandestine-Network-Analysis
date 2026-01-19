@@ -20,13 +20,22 @@ with col_status:
 
 st.divider()
 st.markdown("""### WELCOME, ANALYST
-This system provides tactical insights into the identified clandestine network (N=62). 
-Utilizing high-fidelity **Network Science** and **Mathematical Optimization**, 
-this platform identifies critical nodes and organizational vulnerabilities.
-
-#### // CURRENT_OBJECTIVES:
-1. **IDENTIFY KEY PLAYERS**: Use Centrality measures (Degree, Eigenvector, Katz) to locate leadership hubs.
-2. **COMMUNITY DETECTION**: Map distinct operational cells or "factions" within the topology.
-3. **RESILIENCE ANALYSIS**: Measure network stability using the **Kemeny Constant**.
-4. **DISRUPTION STRATEGY**: Optimize arrest protocols to maximize network degradation.
+You are working with a decision support system for analyzing clandestine communication networks "
+"using network science and optimization-based methods."
 """)
+st.caption(
+    "Scope: static snapshot of observed communications (N=62). "
+    "Results reflect structural patterns, not intent or hierarchy."
+)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Members", 62)
+c2.metric("Observed links", 159)
+c3.metric("Analysis modes", 5)
+
+st.info(
+    "Use this system comparatively: explore patterns, contrast perspectives, "
+    "and treat disagreement as analytical signal."
+)
+
+
