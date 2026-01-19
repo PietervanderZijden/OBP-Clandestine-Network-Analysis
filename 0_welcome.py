@@ -21,31 +21,51 @@ with col_status:
 st.divider()
 st.markdown("### Welcome, Analyst")
 
-st.markdown(
-    "You are working with a decision support system for analyzing clandestine communication networks "
-    "using **network science** and **mathematical optimization**."
-)
+with st.container():
+    st.markdown("### WELCOME, ANALYST")
+    st.markdown(
+        "<div style='margin-left: 6px;'>"
+        "You are working with a decision support system for analyzing clandestine communication networks "
+        "using network science and mathematical optimization."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
 
 st.markdown(
+    "<span style='color:#8b949e; font-size:0.85em;'>"
     "Scope: static snapshot of observed communications (62 members). "
     "Results reflect structural patterns rather than intent or hierarchy."
+    "</span>",
+    unsafe_allow_html=True,
 )
+
 
 
 st.markdown("### What this system does")
 
 st.markdown(
-    "- **Identifies structurally important members** using multiple network perspectives.\n"
-    "- **Classifies members into functional roles** based on their position in the network.\n"
-    "- **Detects groups and structural weak points** within the network.\n"
-    "- **Assesses network resilience** by simulating the removal of key members.\n"
-    "- **Supports arrest planning** by translating analytical insights into actionable recommendations."
+    """
+    - 🧭 **Identifies structurally important members** using multiple network perspectives  
+    - 🧩 **Classifies members into functional roles** based on network position  
+    - 🕸️ **Detects groups and structural weak points** within the network  
+    - 🧪 **Assesses network resilience** via simulated member removal  
+    - 🎯 **Supports arrest planning** through structured analytical recommendations
+    """
 )
 
 
-st.info(
-    "Use the system comparatively: explore patterns, contrast perspectives, and treat disagreement as analytical signal."
+
+st.markdown(
+    "<div style='padding:12px; background-color: rgba(88,166,255,0.08); "
+    "border-left: 3px solid #58a6ff;'>"
+    "<strong>Analyst guidance</strong><br>"
+    "Use the system comparatively: explore patterns, contrast perspectives, "
+    "and treat disagreement as analytical signal."
+    "</div>",
+    unsafe_allow_html=True,
 )
+
 
 
 
