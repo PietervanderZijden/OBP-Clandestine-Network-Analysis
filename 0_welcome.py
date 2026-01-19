@@ -19,7 +19,7 @@ with col_status:
     """, unsafe_allow_html=True)
 
 st.divider()
-st.markdown("### WELCOME, ANALYST")
+st.markdown("### Welcome, Analyst")
 
 st.markdown(
     "You are working with a decision support system for analyzing clandestine communication networks "
