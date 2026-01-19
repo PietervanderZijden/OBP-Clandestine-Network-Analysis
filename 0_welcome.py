@@ -26,18 +26,11 @@ st.markdown(
     "using **network science** and **mathematical optimization**."
 )
 
-st.caption(
+st.markdown(
     "Scope: static snapshot of observed communications (62 members). "
     "Results reflect structural patterns rather than intent or hierarchy."
 )
 
-st.markdown("### What this system does")
-st.markdown(
-    "- **Identifies structurally important members** by combining multiple network perspectives.\n"
-    "- **Classifies members into functional roles** based on network position and connectivity.\n"
-    "- **Reveals substructures and vulnerabilities** via clustering and robustness analysis.\n"
-    "- **Evaluates intervention impact** by translating structural insight into disruption recommendations."
-)
 
 st.markdown("### What this system does")
 
