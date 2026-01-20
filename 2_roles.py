@@ -15,16 +15,18 @@ st.title("NETWORK ROLE IDENTIFICATION")
 st.caption("SOCIAL ROLE ANALYSIS ENGINE")
 st.markdown("### Quick Guide")
 
-st.markdown(
-    """
-    Use this page to **assign an operational role** to each member based on their position in the network.
+with st.expander("Quick guide"):
+    st.markdown(
+        """
+        This page supports **operational role assignment** based on network structure.
 
-    **How to use this view:**
-    1. Select a **role identification method** from the left panel.
-    2. Inspect the **colored network map** to see how roles are distributed.
-    3. Click a **member on the right** to view role rationale, confidence, and supporting evidence.
-    """
-)
+        **Workflow:**
+        1. Select a **role identification method** from the left panel.
+        2. Inspect the **colored network map** to understand role distribution.
+        3. Select a **member** on the right to view role rationale, confidence, and evidence.
+        """
+    )
+
 
 
 
