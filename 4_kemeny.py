@@ -337,20 +337,68 @@ def _edge_segments_from_adjacency(
     return xs, ys, zs
 
 
-def render_graph_panel_3d(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: GraphSettings) -> None:
-    """3D read-only visualization of the current graph state."""
-    st.subheader("Network view (current state) — 3D")
-    st.caption("Drag to rotate, scroll to zoom, double-click to reset view.")
-    show_removed = st.checkbox("Show removed edges (faded)", value=False)
+def _edge_trace_points(
+    u: int,
+    v: int,
+    layout3d: dict[int, tuple[float, float, float]],
+    steps: int = 7,
+) -> tuple[list[float], list[float], list[float]]:
+    """Sample points along an edge so clicks are reliable (markers are invisible)."""
+    x0, y0, z0 = layout3d.get(int(u), (0.0, 0.0, 0.0))
+    x1, y1, z1 = layout3d.get(int(v), (0.0, 0.0, 0.0))
+    xs = np.linspace(x0, x1, steps).tolist()
+    ys = np.linspace(y0, y1, steps).tolist()
+    zs = np.linspace(z0, z1, steps).tolist()
+    return xs, ys, zs
+
+
+def render_graph_panel_3d_interactive(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: GraphSettings) -> bool:
+    """3D graph with clickable edges.
+
+    Returns True if interactive clicking is available, else False (caller can show fallback UI).
+    """
+    st.subheader("Network view (current state) — 3D (click edges)")
+    st.caption("Drag to rotate, scroll to zoom. Click an edge to select it, then remove from the buttons below.")
+
+    show_removed = st.checkbox("Show removed edges (faded)", value=False, key="kemeny_show_removed_edges")
+
+    # Session state
+    if "selected_edges" not in st.session_state:
+        st.session_state.selected_edges = set()
 
     try:
         import plotly.graph_objects as go
     except Exception as e:
         st.error("Plotly is required for the 3D graph. Install with: pip install plotly")
         st.exception(e)
-        return
+        return False
 
-    # Fixed 3D layout from baseline
+    # Click capture (optional dependency)
+    # Prefer streamlit-plotly-events2 (Py>=3.10), fall back to the older package if present.
+    try:
+        from streamlit_plotly_events2 import plotly_events  # type: ignore
+    except Exception:
+        try:
+            from streamlit_plotly_events import plotly_events  # type: ignore
+        except Exception:
+            plotly_events = None
+
+    def _plotly_events_safe(fig, height: int):
+        """Call plotly_events with only the kwargs supported by the installed package."""
+        import inspect
+
+        kwargs = dict(click_event=True, select_event=False, hover_event=False)
+        sig = inspect.signature(plotly_events)
+        if 'override_height' in sig.parameters:
+            kwargs['override_height'] = height
+        elif 'height' in sig.parameters:
+            kwargs['height'] = height
+        # Keep Streamlit/Plotly controls stable if supported
+        if 'config' in sig.parameters:
+            kwargs['config'] = {'displaylogo': False, 'scrollZoom': True}
+        return plotly_events(fig, **kwargs)
+
+    # Fixed 3D layout from baseline (nodes don't jump)
     layout3d = fixed_layout3d_from_A(A0.data, A0.indices, A0.indptr, A0.shape)
 
     n = A_state.shape[0]
@@ -359,36 +407,37 @@ def render_graph_panel_3d(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: G
     G_state_local = build_nx_graph(A_state, directed=settings.directed)
     degree_map = dict(G_state_local.degree())
 
-    node_x: list[float] = []
-    node_y: list[float] = []
-    node_z: list[float] = []
-    node_text: list[str] = []
+    # Current active edges (removed edges are not in A_state)
+    edges_state = edges_from_adjacency(A_state, directed=settings.directed)
 
-    for i in range(n):
-        x, y, z = layout3d.get(i, (0.0, 0.0, 0.0))
-        node_x.append(x)
-        node_y.append(y)
-        node_z.append(z)
-        node_text.append(f"Node {i+1}<br>Degree: {degree_map.get(i, 0)}")
-
-    # Active edges as one line trace
-    ex, ey, ez = _edge_segments_from_adjacency(A_state, directed=settings.directed, layout3d=layout3d)
+    selected_edges: set[tuple[int, int]] = set(st.session_state.selected_edges)
 
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Scatter3d(
-            x=ex,
-            y=ey,
-            z=ez,
-            mode="lines",
-            line=dict(color=COLOR_WIRE, width=2),
-            hoverinfo="skip",
-            opacity=0.55,
-        )
-    )
+    # --- Clickable edges (one trace per edge) ---
+    for (u, v) in edges_state:
+        is_sel = (u, v) in selected_edges
+        xs, ys, zs = _edge_trace_points(u, v, layout3d=layout3d, steps=7)
 
-    # Removed edges (optional, faded)
+        if settings.directed:
+            hover = f"Edge {u+1} → {v+1}"
+        else:
+            hover = f"Edge {u+1} – {v+1}"
+
+        fig.add_trace(
+            go.Scatter3d(
+                x=xs,
+                y=ys,
+                z=zs,
+                mode="lines+markers",
+                line=dict(color=(COLOR_ALERT if is_sel else COLOR_WIRE), width=(6 if is_sel else 2)),
+                marker=dict(size=8, opacity=0.01),  # invisible markers make clicking stable
+                hovertemplate=hover + "<extra></extra>",
+                showlegend=False,
+            )
+        )
+
+    # --- Removed edges (optional, faded) ---
     if show_removed:
         removed_set = st.session_state.get("removed_set", set())
         rx: list[float] = []
@@ -414,29 +463,43 @@ def render_graph_panel_3d(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: G
                     mode="lines",
                     line=dict(color=COLOR_ALERT, width=6),
                     hoverinfo="skip",
-                    opacity=0.35,
+                    opacity=0.25,
+                    showlegend=False,
                 )
             )
 
-    # Nodes on top
+    # --- Nodes (spheres) + labels (1-based) ---
+    node_x: list[float] = []
+    node_y: list[float] = []
+    node_z: list[float] = []
+    node_text: list[str] = []
+
+    for i in range(n):
+        x, y, z = layout3d.get(i, (0.0, 0.0, 0.0))
+        node_x.append(x)
+        node_y.append(y)
+        node_z.append(z)
+        node_text.append(f"Node {i+1}<br>Degree: {degree_map.get(i, 0)}")
+
     fig.add_trace(
         go.Scatter3d(
             x=node_x,
             y=node_y,
             z=node_z,
             mode="markers+text",
-            text=[str(i+1) for i in range(n)],
-            textposition="top center",
-            marker=dict(size=6, color=COLOR_STEEL),
+            text=[str(i + 1) for i in range(n)],
+            textposition="middle center",
+            textfont=dict(color="#FFFFFF", size=10),
+            marker=dict(size=14, color=COLOR_STEEL),
             hovertext=node_text,
             hoverinfo="text",
+            showlegend=False,
         )
     )
 
     fig.update_layout(
         margin=dict(l=0, r=0, t=0, b=0),
-        showlegend=False,
-        # Preserve camera when Streamlit reruns (e.g., after removing an edge)
+        # Preserve camera when Streamlit reruns
         uirevision="kemeny-3d",
         paper_bgcolor="#d9d9d9",
         plot_bgcolor="#d9d9d9",
@@ -448,14 +511,34 @@ def render_graph_panel_3d(A0: sp.csr_matrix, A_state: sp.csr_matrix, settings: G
             aspectmode="data",
         ),
         height=750,
-        
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={"displaylogo": False, "scrollZoom": True},
-    )
+    if plotly_events is None:
+        # No click-capture available -> show read-only figure; caller should provide fallback removal UI.
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False, "scrollZoom": True})
+        st.warning(
+            "Clickable edges are disabled (missing optional dependency 'streamlit-plotly-events2'). "
+            "Use the fallback removal UI below, or install it (or streamlit-plotly-events) for full interaction."
+        )
+        return False
+
+
+    # Render + capture click events
+    events = _plotly_events_safe(fig, height=750)
+
+    if events:
+        evt = events[0]
+        curve = evt.get("curveNumber")
+        if isinstance(curve, int) and 0 <= curve < len(edges_state):
+            e = edges_state[curve]
+            if e in selected_edges:
+                selected_edges.remove(e)
+            else:
+                selected_edges.add(e)
+            st.session_state.selected_edges = selected_edges
+            st.rerun()
+
+    return True
 
 #---helper for node display numbering
 def show_node(i: int) -> int:
@@ -467,22 +550,27 @@ def show_node(i: int) -> int:
 # -------------------------
 apply_tactical_theme()
 
-st.set_page_config(layout="wide")
 st.title("Kemeny Constant — Edge Removal Analysis")
 st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports directed/weighted graphs.")
 
 file_path = "data/clandestine_network_example.mtx"
 
 with st.expander("Graph settings", expanded=False):
-    directed = st.checkbox("Directed graph", value=False)
-    keep_weights = st.checkbox("Use weights (do not binarize)", value=False)
-    lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05)
+    directed = st.checkbox("Directed graph (optional)", value=False, key="k_directed")
+    st.caption("Enable only if the input network is directed.")
+    keep_weights = st.checkbox("Use weights (do not binarize)", value=False, key="k_keep_weights")
+    lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05, key="k_lazy_alpha")
+
     st.caption(
         "Undirected mode symmetrizes by average: A <- (A + A^T)/2. "
         "Lazy alpha > 0 can improve numerical stability for periodic chains."
     )
 
-settings = GraphSettings(directed=directed, keep_weights=keep_weights, lazy_alpha=float(lazy_alpha))
+settings = GraphSettings(
+    directed=directed,
+    keep_weights=keep_weights,
+    lazy_alpha=float(lazy_alpha),
+)
 
 if not os.path.exists(file_path):
     st.error(f"Data file not found: {file_path}")
@@ -496,9 +584,11 @@ edges0 = edges_from_adjacency(A0, directed=settings.directed)
 
 # Initialize session state for removals
 if "removed_set" not in st.session_state:
-    st.session_state.removed_set = set()
+    st.session_state.removed_set = set() # used by math
 if "removed_edges" not in st.session_state:
-    st.session_state.removed_edges = []
+    st.session_state.removed_edges = [] # ordered list for display
+if "selected_edges" not in st.session_state:
+    st.session_state.selected_edges = set() # what user clicked
 
 # Build current adjacency/graph from removals
 A_state = apply_edge_removals(A0, st.session_state.removed_set, directed=settings.directed)
@@ -532,152 +622,350 @@ with kcol2:
     st.metric("Current Kemeny constant", f"{K_now:.6f}", delta=f"{(K_now - K0):+.6f}")
 
 
-# Graph panel (read-only) — 3D
-render_graph_panel_3d(A0=A0, A_state=A_state, settings=settings)
 
-st.write("**Removed edges (ordered):**")
-if st.session_state.removed_edges:
-    pretty = [f"({u+1}, {v+1})" for (u, v) in st.session_state.removed_edges]
-    st.markdown(" ".join([f"`{e}`" for e in pretty]))
+# Graph panel — 3D (clickable edges)
+interactive_ok = render_graph_panel_3d_interactive(A0=A0, A_state=A_state, settings=settings)
+
+# --- Selection + removal controls ---
+selected_edges: set[tuple[int, int]] = set(st.session_state.get("selected_edges", set()))
+removed_set: set[tuple[int, int]] = set(st.session_state.get("removed_set", set()))
+
+def canon(e: tuple[int, int]) -> tuple[int, int]:
+    return normalize_edge(int(e[0]), int(e[1]), directed=settings.directed)
+
+# Canonicalize both sets so (u,v) and (v,u) match in undirected mode
+selected_edges = {canon(e) for e in selected_edges}
+removed_set = {canon(e) for e in removed_set}
+
+# Invariant: removed edges must never remain selected
+selected_edges = {e for e in selected_edges if e not in removed_set}
+
+# Write back the canonicalized state
+st.session_state.selected_edges = selected_edges
+st.session_state.removed_set = removed_set
+
+st.markdown("**Select edges:** click in the graph *or* type an edge below")
+
+def _parse_edge_1based(s: str):
+    s = s.strip().replace("→", "-").replace(" ", "")
+    if not s:
+        return None
+    for sep in ["-", ",", ";"]:
+        if sep in s:
+            a, b = s.split(sep, 1)
+            try:
+                return int(a), int(b)
+            except ValueError:
+                return None
+    return None
+
+def canon(e: tuple[int, int]) -> tuple[int, int]:
+    return normalize_edge(int(e[0]), int(e[1]), directed=settings.directed)
+
+with st.form("edge_add_form", clear_on_submit=True):
+    c1, c2 = st.columns([2, 1])
+
+    with c1:
+        edge_text = st.text_input(
+            "Type edge as u-v (1-based)",
+            placeholder="e.g., 35-50",
+            label_visibility="collapsed",
+            key="edge_manual_input",
+        )
+
+    with c2:
+        add_edge_clicked = st.form_submit_button("Add", use_container_width=True)
+
+    if add_edge_clicked:
+        uv = _parse_edge_1based(edge_text)
+        if uv is None:
+            st.error("Format: u-v (example: 35-50)")
+        else:
+            u1, v1 = uv
+            n = int(A0.shape[0])
+            u0, v0 = u1 - 1, v1 - 1
+
+            if not (0 <= u0 < n and 0 <= v0 < n) or u0 == v0:
+                st.error(f"Nodes must be between 1 and {n}, and u ≠ v.")
+            else:
+                e = canon((u0, v0))
+
+                if e not in set(edges0):
+                    st.warning(f"Edge {u1}-{v1} is not in the graph.")
+                elif e in st.session_state.removed_set:
+                    st.info(f"Edge {u1}-{v1} is already removed (use undo).")
+                else:
+                    sel = set(st.session_state.selected_edges)
+                    sel.add(e)
+                    st.session_state.selected_edges = sel
+                    st.rerun()
+
+
+st.write("**Selected edges:**")
+if selected_edges:
+    pretty_sel = [f"({u+1}, {v+1})" for (u, v) in sorted(selected_edges)]
+    st.markdown(" ".join([f"`{e}`" for e in pretty_sel]))
+else:
+    st.caption("(none — click edges in the graph)")
+
+b1, b2, b3 = st.columns([1, 1, 1])
+with b1:
+    remove_clicked = st.button("Remove selected edges", disabled=(not selected_edges))
+with b2:
+    clear_clicked = st.button("Clear selection", disabled=(not selected_edges))
+with b3:
+    reset_clicked = st.button("Reset all removals")
+
+if clear_clicked:
+    st.session_state.selected_edges = set()
+    st.rerun()
+
+if reset_clicked:
+    st.session_state.removed_set = set()
+    st.session_state.removed_edges = []
+    st.session_state.selected_edges = set()
+    st.rerun()
+
+if remove_clicked and selected_edges:
+    # Update removed_set
+    removed_set = set(st.session_state.removed_set)
+    for e in selected_edges:
+        removed_set.add(normalize_edge(e[0], e[1], directed=settings.directed))
+
+    # Maintain ordered list, allow deletions later
+    removed_edges_order = list(st.session_state.removed_edges)
+    for e in selected_edges:
+        e = normalize_edge(e[0], e[1], directed=settings.directed)
+        if e not in removed_edges_order:
+            removed_edges_order.append(e)
+
+    st.session_state.removed_set = removed_set
+    st.session_state.removed_edges = removed_edges_order
+    st.session_state.selected_edges = set()
+    st.rerun()
+
+# --- Removed edges list with per-edge Undo ---
+st.write("**Removed edges (click to undo):**")
+removed_edges_order: list[tuple[int, int]] = list(st.session_state.get("removed_edges", []))
+if removed_edges_order:
+    # Left-to-right layout in rows
+    cols_per_row = 6
+    for i in range(0, len(removed_edges_order), cols_per_row):
+        row = removed_edges_order[i : i + cols_per_row]
+        cols = st.columns(len(row))
+        for c, (u, v) in zip(cols, row):
+            label = f"↩ {u+1}-{v+1}" if not settings.directed else f"↩ {u+1}→{v+1}"
+            if c.button(label, key=f"undo_edge_{u}_{v}"):
+                st.session_state.removed_set.discard((u, v))
+                st.session_state.removed_edges = [e for e in st.session_state.removed_edges if e != (u, v)]
+                # If it was also selected, unselect
+                sel = set(st.session_state.get("selected_edges", set()))
+                sel.discard((u, v))
+                st.session_state.selected_edges = sel
+                st.rerun()
 else:
     st.caption("(none)")
 
+# --- Fallback removal UI (insurance) ---
+# --- Fallback removal UI (insurance) ---
+with st.expander(
+    "Fallback: edge table removal (only needed if edge clicks don't work)",
+    expanded=(not interactive_ok),
+):
+    if interactive_ok:
+        st.info(
+            "Interactive edge clicks are enabled, so the fallback table is disabled to avoid state conflicts. "
+            "If you really need the table, enable it below."
+        )
+        enable_fallback = st.checkbox("Enable fallback table anyway", value=False, key="enable_fallback_table")
+    else:
+        enable_fallback = True
 
-with st.sidebar:
-    st.subheader("Remove communication links (toggle)")
-    st.caption("Tick an edge to remove it. Untick to restore it. (IDs shown 1-based; internal math stays 0-based.)")
+    if enable_fallback:
+        st.caption(
+            "This table is a backup control. If your environment can't capture Plotly clicks, use this and your demo still works."
+        )
 
-    # Build a stable full list of edges (0-based internally)
-    edges_all = pd.DataFrame(edges0, columns=["u", "v"])
-    edges_all["u_show"] = edges_all["u"] + 1
-    edges_all["v_show"] = edges_all["v"] + 1
+        edges_all = pd.DataFrame(edges0, columns=["u", "v"])
+        edges_all["u_show"] = edges_all["u"] + 1
+        edges_all["v_show"] = edges_all["v"] + 1
+        edges_all["Removed"] = [(e in st.session_state.removed_set) for e in edges0]
 
-    # Checkbox state based on current removed_set
-    edges_all["Removed"] = [(e in st.session_state.removed_set) for e in edges0]
+        edited = st.data_editor(
+            edges_all[["u_show", "v_show", "Removed"]],
+            width="stretch",
+            hide_index=True,
+            key="edge_editor_fallback",
+            column_config={
+                "u_show": st.column_config.NumberColumn("u", disabled=True),
+                "v_show": st.column_config.NumberColumn("v", disabled=True),
+                "Removed": st.column_config.CheckboxColumn("Removed ✅"),
+            },
+            height=350,
+        )
 
-    # Display editor (show only the 1-based columns + checkbox)
-    edited = st.data_editor(
-        edges_all[["u_show", "v_show", "Removed"]],
-        use_container_width=True,
-        hide_index=True,
-        key="edge_editor",
-        column_config={
-            "u_show": st.column_config.NumberColumn("u", disabled=True),
-            "v_show": st.column_config.NumberColumn("v", disabled=True),
-            "Removed": st.column_config.CheckboxColumn("Removed ✅"),
-        },
-        height=450,   # sidebar-friendly; increase if you want
-    )
+        old_set = set(st.session_state.removed_set)
+        new_set = {edges0[i] for i, flag in enumerate(edited["Removed"].tolist()) if bool(flag)}
 
-    # ---- Sync logic: update removed_set + removed_edges order ----
-    old_set = set(st.session_state.removed_set)
+        added = new_set - old_set
+        removed = old_set - new_set
 
-    # IMPORTANT: row i corresponds to edges0[i]
-    new_set = {edges0[i] for i, flag in enumerate(edited["Removed"].tolist()) if bool(flag)}
+        if added or removed:
+            st.session_state.removed_set = new_set
 
-    added = new_set - old_set
-    removed = old_set - new_set
+            for e in edges0:
+                if e in added and e not in st.session_state.removed_edges:
+                    st.session_state.removed_edges.append(e)
+            if removed:
+                st.session_state.removed_edges = [e for e in st.session_state.removed_edges if e not in removed]
 
-    if added or removed:
-        # Update set
-        st.session_state.removed_set = new_set
-
-        # Maintain an "ordered history" list, but allow deletions
-        # Add in table order (stable)
-        for e in edges0:
-            if e in added:
-                st.session_state.removed_edges.append(e)
-
-        # Remove unchecked edges from the history list (keep order of the rest)
-        if removed:
-            st.session_state.removed_edges = [e for e in st.session_state.removed_edges if e not in removed]
-
-        st.rerun()
+            st.rerun()
 
 
 
 st.subheader("Next-step recommendations (Top 5)")
 
-objective = st.radio(
-    "Objective",
-    ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
-    horizontal=True,
-    index=0,
-)
-want_disrupt = objective.startswith("Disrupt")
+# --- objective state (needed even when recommendations are off) ---
+if "objective" not in st.session_state:
+    st.session_state.objective = "Disrupt communication (maximize K)"
 
-st.caption(
-    "Recommendations are computed for the NEXT removal given the current removed set. "
-    "K is always computed on Full graph if possible; otherwise on LCC/LSCC."
-)
+with st.expander("Next-step recommendations (Top 5)", expanded=st.session_state.get("compute_reco", False)):
+    compute_reco = st.checkbox(
+        "Compute recommendations (slow; runs many Kemeny computations)",
+        key="compute_reco",
+        help="Turn this on only when you need the top-5 list. Keeps the page fast and stable."
+    )
 
-# Candidate edges
-edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
-if edges_df.empty:
-    st.info("No candidates remaining.")
-else:
-    rows = []
-    # Evaluate each candidate as next removal
-    for _, r in edges_df.iterrows():
-        e = (int(r["u"]), int(r["v"]))
-        e = normalize_edge(e[0], e[1], directed=settings.directed)
+    if not compute_reco:
+        st.info("Recommendations are off. Turn on the checkbox to compute the top-5.")
+    else:
+        objective = st.radio(
+            "Objective",
+            ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
+            horizontal=True,
+            key="objective",
+        )
+        want_disrupt = objective.startswith("Disrupt")
 
-        removed_next = set(st.session_state.removed_set)
-        removed_next.add(e)
-
-        A_next = apply_edge_removals(A0, removed_next, directed=settings.directed)
-        scope_next, K_next, n_next = kemeny_score(
-            A_next, directed=settings.directed, lazy_alpha=settings.lazy_alpha
+        st.caption(
+            "Recommendations are computed for the NEXT removal given the current removed set. "
+            "K is always computed on Full graph if possible; otherwise on LCC/LSCC."
         )
 
-        rows.append(
-            {
-                "u": e[0],
-                "v": e[1],
-                "K_next": float(K_next),
-                "dK_next": float(K_next - K_now),
-                "dK_vs_K0": float(K_next - K0),
-                "scope_next": scope_next,
-                "comp_size_next": int(n_next),
-            }
-        )
+        # Candidate edges
+        edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
+        if edges_df.empty:
+            st.info("No candidates remaining.")
+        else:
+            rows = []
+            # Evaluate each candidate as next removal
+            skipped = 0
+            errors = []
 
-    df = pd.DataFrame(rows)
+            for _, r in edges_df.iterrows():
+                e = (int(r["u"]), int(r["v"]))
+                e = normalize_edge(e[0], e[1], directed=settings.directed)
 
-    # Sort for recommendation direction
-    df_sorted = df.sort_values("dK_next", ascending=(not want_disrupt))
-    df_reco = df_sorted.head(5)
-    df_opp = df_sorted.tail(5).sort_values("dK_next", ascending=(not want_disrupt))
+                removed_next = set(st.session_state.removed_set)
+                removed_next.add(e)
 
-    # Component shrink list (useful when removals isolate nodes)
-    df_shrink = df.sort_values(["comp_size_next", "dK_next"], ascending=[True, False]).head(5)
+                try:
+                    A_next = apply_edge_removals(A0, removed_next, directed=settings.directed)
+                    scope_next, K_next, n_next = kemeny_score(
+                        A_next, directed=settings.directed, lazy_alpha=settings.lazy_alpha
+                    )
+                except Exception as ex:
+                    skipped += 1
+                    if len(errors) < 3:
+                        errors.append(f"{e}: {type(ex).__name__}")
+                    continue
 
-    reco_title = "Recommended next edges" + (" (increase K most)" if want_disrupt else " (decrease K most)")
-    opp_title = "Opposite-effect edges" + (" (decrease K most)" if want_disrupt else " (increase K most)")
+                rows.append(
+                    {
+                        "u": e[0],
+                        "v": e[1],
+                        "K_next": float(K_next),
+                        "dK_next": float(K_next - K_now),
+                        "dK_vs_K0": float(K_next - K0),
+                        "scope_next": scope_next,
+                        "comp_size_next": int(n_next),
+                    }
+                )
 
-    st.markdown(f"**{reco_title}**")
-    st.dataframe(
-        df_reco[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
-        hide_index=True,
-        use_container_width=True,
-    )
+            if skipped:
+                st.warning(f"Skipped {skipped} candidate edges due to numerical/graph edge-case errors. Examples: {', '.join(errors)}")
 
-    st.markdown(f"**{opp_title}**")
-    st.dataframe(
-        df_opp[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
-        hide_index=True,
-        use_container_width=True,
-    )
+            df = pd.DataFrame(rows)
+            if df.empty:
+                st.info("No valid candidates (all were skipped).")
+            else:
+                # --- Add 1-based display columns ---
+                df["u_show"] = df["u"] + 1
+                df["v_show"] = df["v"] + 1
+                df["edge"] = df["u_show"].astype(str) + "-" + df["v_show"].astype(str)
 
-    st.markdown("**Edges most likely to isolate actors / shrink the main component**")
-    st.dataframe(
-        df_shrink[["u", "v", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
-        hide_index=True,
-        use_container_width=True,
-    )
+                # Sort for recommendation direction
+                df_sorted = df.sort_values("dK_next", ascending=(not want_disrupt))
+                df_reco = df_sorted.head(5).copy()
+                df_opp = df_sorted.tail(5).copy().sort_values("dK_next", ascending=(not want_disrupt))
+                df_shrink = df.sort_values(["comp_size_next", "dK_next"], ascending=[True, False]).head(5).copy()
+
+                reco_title = "Recommended next edges" + (" (increase K most)" if want_disrupt else " (decrease K most)")
+                opp_title = "Opposite-effect edges" + (" (decrease K most)" if want_disrupt else " (increase K most)")
+
+                # ---------- Recommended ----------
+                st.markdown(f"**{reco_title}**")
+
+                # Apply buttons (select the exact edge used in K_next computation)
+                st.caption("Click a button to add that edge to *Selected edges* (then press **Remove selected edges** below).")
+                btn_cols = st.columns(len(df_reco))
+                for col, (_, r) in zip(btn_cols, df_reco.iterrows()):
+                    u0 = int(r["u"])      # internal 0-based
+                    v0 = int(r["v"])
+                    u1 = int(r["u_show"]) # display 1-based
+                    v1 = int(r["v_show"])
+                    label = f"{u1}-{v1}" if not settings.directed else f"{u1}→{v1}"
+
+                    if col.button(label, key=f"apply_reco_{u0}_{v0}"):
+                        e = normalize_edge(u0, v0, directed=settings.directed)
+                        sel = set(st.session_state.selected_edges)
+                        sel.add(e)
+                        st.session_state.selected_edges = sel
+                        st.rerun()
+
+                st.dataframe(
+                    df_reco[["edge", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]],
+                    hide_index=True,
+                    width="stretch",
+                )
+
+                # ---------- Opposite ----------
+                st.markdown(f"**{opp_title}**")
+                st.dataframe(
+                    df_opp.assign(edge=(df_opp["u_show"].astype(str) + "-" + df_opp["v_show"].astype(str)))[
+                        ["edge", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]
+                    ],
+                    hide_index=True,
+                    width="stretch",
+                )
+
+                # ---------- Shrink / isolate ----------
+                st.markdown("**Edges most likely to isolate actors / shrink the main component**")
+                st.dataframe(
+                    df_shrink.assign(edge=(df_shrink["u_show"].astype(str) + "-" + df_shrink["v_show"].astype(str)))[
+                        ["edge", "dK_next", "dK_vs_K0", "K_next", "scope_next", "comp_size_next"]
+                    ],
+                    hide_index=True,
+                    width="stretch",
+                )
+
 
 # Interpretation (objective-aware)
 st.subheader("Interpretation")
+
+objective = st.session_state.objective
+want_disrupt = str(objective).startswith("Disrupt")
+
 if want_disrupt:
     st.write(
         "- **Positive dK**: communication becomes slower (desired for disruption).\n"
