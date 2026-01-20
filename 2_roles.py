@@ -13,9 +13,8 @@ apply_tactical_theme()
 
 st.title("NETWORK ROLE IDENTIFICATION")
 st.caption("SOCIAL ROLE ANALYSIS ENGINE")
-st.markdown("### Quick Guide")
 
-with st.expander("Quick guide"):
+with st.expander("Quick guide", expanded=True):
     st.markdown(
         """
         This page supports **operational role assignment** based on network structure.
