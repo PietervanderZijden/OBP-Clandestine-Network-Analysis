@@ -556,15 +556,21 @@ st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports dire
 file_path = "data/clandestine_network_example.mtx"
 
 with st.expander("Graph settings", expanded=False):
-    directed = st.checkbox("Directed graph", value=False)
-    keep_weights = st.checkbox("Use weights (do not binarize)", value=False)
-    lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05)
+    directed = st.checkbox("Directed graph (optional)", value=False, key="k_directed")
+    st.caption("Enable only if the input network is directed.")
+    keep_weights = st.checkbox("Use weights (do not binarize)", value=False, key="k_keep_weights")
+    lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05, key="k_lazy_alpha")
+
     st.caption(
         "Undirected mode symmetrizes by average: A <- (A + A^T)/2. "
         "Lazy alpha > 0 can improve numerical stability for periodic chains."
     )
 
-settings = GraphSettings(directed=directed, keep_weights=keep_weights, lazy_alpha=float(lazy_alpha))
+settings = GraphSettings(
+    directed=directed,
+    keep_weights=keep_weights,
+    lazy_alpha=float(lazy_alpha),
+)
 
 if not os.path.exists(file_path):
     st.error(f"Data file not found: {file_path}")
@@ -586,9 +592,6 @@ if "selected_edges" not in st.session_state:
 
 # Build current adjacency/graph from removals
 A_state = apply_edge_removals(A0, st.session_state.removed_set, directed=settings.directed)
-
-st.caption(f"DEBUG removed_set size: {len(st.session_state.removed_set)}")
-
 G_state = build_nx_graph(A_state, directed=settings.directed)
 
 # Connectivity status
