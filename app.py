@@ -70,6 +70,7 @@ if st.session_state.logged_in:
             st.Page("src/3_factions.py", title="Factions"),
             st.Page("4_kemeny.py", title="Kemeny Constant"),
             st.Page("src/5_arrest_plan.py", title="Arrest Plan"),
+            st.Page("src/6_data_import.py", title="Import Intelligence"),
             st.Page(logout_screen, title="Log out"),
         ]
     )
