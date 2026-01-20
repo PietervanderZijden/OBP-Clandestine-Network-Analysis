@@ -13,11 +13,19 @@ apply_tactical_theme()
 
 st.title("NETWORK ROLE IDENTIFICATION")
 st.caption("SOCIAL ROLE ANALYSIS ENGINE")
-st.markdown(
-    "Use this page to **assign an operational role** to each member (core / intermediate / peripheral) "
-    "based on their network position. \n\n"
-    "**Start:** pick a role method → inspect the colored network map → click a member on the right to see rationale and evidence."
-)
+
+with st.expander("Quick guide", expanded=True):
+    st.markdown(
+        """
+        This page supports **operational role assignment** based on network structure.
+
+        **Workflow:**
+        1. Select a **role identification method** from the left panel.
+        2. Inspect the **colored network map** to understand role distribution.
+        3. Select a **member** on the right to view role rationale, confidence, and evidence.
+        """
+    )
+
 
 
 
@@ -52,16 +60,19 @@ df_cent = df_cent.set_index("node", drop=False)
 df_overlap = df_overlap.set_index("node", drop=False)
 
 # Method selector
-method_ui = st.selectbox(
-    "Role method (choose perspective)",
-    ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
-    index=None,
-    placeholder="Select a method...",
-    help=(
-        "Each method assigns roles using a different network signal. "
-        "Use Confidence to see how much the other methods agree with your choice."
+with st.sidebar:
+    st.subheader("Roles settings")
+    method_ui = st.selectbox(
+        "Role method",
+        ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
+        index=None,
+        placeholder="Select a method...",
+        help=(
+            "Each method assigns roles using a different network signal. "
+            "Confidence shows how much the other methods agree."
+        )
     )
-)
+
 
 if method_ui is None:
     st.warning("Select a role method to generate the role map and member inspection.")
@@ -73,6 +84,9 @@ METHOD_KEY = {
     "Importance type": "Centrality",
     "Similar contacts": "Overlap"
 }[method_ui]
+
+st.caption(f"Selected role method: **{method_ui}**")
+
 
 if METHOD_KEY == "Flow":
     st.markdown("**What this method measures:** Influence via multi-step information flow through the network.")

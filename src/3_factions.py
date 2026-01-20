@@ -191,6 +191,18 @@ def validate_partition_robustness(
     }
 
 
+def compute_changed_nodes(
+    membership_before: dict[int, int],
+    membership_after: dict[int, int],
+):
+    common = set(membership_before).intersection(membership_after)
+    return {
+        n: (membership_before[n], membership_after[n])
+        for n in common
+        if membership_before[n] != membership_after[n]
+    }
+
+
 # APP
 
 
@@ -224,6 +236,7 @@ def build_pyvis_html(
     membership: dict[int, int] | None,
     height_px: int = HEIGH_PX,
     show_labels: bool = False,
+    changed_nodes: dict[int, tuple[int, int]] | None = None,
 ):
     net = Network(
         height=f"{height_px}px",
@@ -251,6 +264,7 @@ def build_pyvis_html(
     net.from_nx(G)
 
     colours = colour_palette()
+    changed_nodes = changed_nodes or {}
 
     for node in net.nodes:
         nid = int(node["id"])
@@ -258,19 +272,38 @@ def build_pyvis_html(
         if membership is None:
             node["color"] = "#DDDDDD"
             node["title"] = f"Node {nid}"
-            node["opacity"] = 1
         else:
             cid = membership.get(nid, 0)
             node["color"] = colours[cid % len(colours)]
-            node["title"] = f"Node {nid}<br>Community {cid}"
+
+            if nid in changed_nodes:
+                old_c, new_c = changed_nodes[nid]
+                node["title"] = (
+                    f"Node {nid}"
+                    f"<br><b>CHANGED CLUSTER</b>"
+                    f"<br>old: {old_c}"
+                    f"<br>new: {new_c}"
+                )
+                # Make it visually obvious
+                node["shape"] = "diamond"
+                node["size"] = 28
+                node["borderWidth"] = 5
+                node["borderWidthSelected"] = 5
+                node["color"] = {
+                    "background": colours[new_c % len(colours)],
+                    "border": "#ffffff",
+                    "highlight": {
+                        "background": colours[new_c % len(colours)],
+                        "border": "#ff4d4d",
+                    },
+                }
+            else:
+                node["title"] = f"Node {nid}<br>Community {cid}"
 
         node["label"] = str(nid)
         node["font"] = {"color": "#ffffff", "size": 18}
-
-        node["size"] = 15
-        node["borderWidth"] = 0
-        node["borderWidthSelected"] = 0
         node["shadow"] = False
+
     for e in net.edges:
         e["color"] = "#AAAAAA"
         e["width"] = 1.5
@@ -312,7 +345,7 @@ if "show_tutorial" not in st.session_state:
     st.session_state.show_tutorial = True
 
 
-st.title("FactionSelection")
+st.title("Faction Selection")
 if st.session_state.show_tutorial:
     with st.expander("📘 Quick guide", expanded=True):
         st.markdown(
@@ -321,30 +354,79 @@ if st.session_state.show_tutorial:
             Pick a method to detect factions in the network.
 
             **Step 2 — Adjust settings (optional)**  
-            For **Louvain** and **Leiden**, resolution controls the level of detail of the communities.
-            Lower values produce larger communities, while higher values produce smaller communities.  
-            For **Spectral** and **Girvan–Newman**, k controls the number of communities \(k\).
+            Parameter _Resolution_ controls the level of detail and number of the communities. 
+            For **Louvain** and **Leiden**, lower values produce fewer, larger communities while larger values create more, smaller communities. 
+
 
             **Step 3 — Click Run**  
             The network will update with color-coded factions.
 
             **Step 4 — Explore details**  
             Open the “Community details” section below the graph to inspect members.
+
+            _Hint: click on the ? to learn more about the methods and results_
             """
         )
 
+        # For **Louvain** and **Leiden**, resolution controls the level of detail of the communities.
+        # Lower values produce larger communities, while higher values produce smaller communities.
+        # For **Spectral** and **Girvan–Newman**, resolution  controls the number of communities.
 G = load_graph(FILE_PATH)
 
 if "communities" not in st.session_state:
     st.session_state.communities = None
     st.session_state.membership = None
     st.session_state.algo_used = None
+if "scroll_to_disturbance" not in st.session_state:
+    st.session_state.scroll_to_disturbance = False
 if "disturbance_results" not in st.session_state:
     st.session_state.disturbance_results = None
 
 st.sidebar.header("Controls")
+st.sidebar.markdown(
+    """
+<style>
+.tooltip {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+  font-weight: 700;
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 200px;
+  background-color: #555;
+  color: #fff;
+  text-align: left;
+  border-radius: 6px;
+  padding: 8px;
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+</style>
+
+<div class="tooltip">
+Algorithm
+<span class="tooltiptext">
+Choose the community detection method used to identify factions.
+</span>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
 algo = st.sidebar.selectbox(
-    "Algorithm",
+    "",
     ["Louvain", "Leiden", "Infomap", "Spectral", "Girvan-Newman"],
     help="Choose the community detection method used to identify factions.",
 )
@@ -361,7 +443,7 @@ st.sidebar.caption(algo_descriptions[algo])
 
 if algo in ("Louvain", "Leiden"):
     resolution = st.sidebar.slider(
-        "Resolution (granularity)",
+        "Resolution",
         0.2,
         1.0,
         0.4,
@@ -369,10 +451,10 @@ if algo in ("Louvain", "Leiden"):
         help="Higher values produce smaller communities. Lower values produce larger communities.",
     )
 elif algo == "Spectral":
-    k = st.sidebar.slider("k", 2, 10, 2, 1, help="Number of Communities")
+    k = st.sidebar.slider("Resolution", 2, 10, 2, 1, help="Number of Communities")
     assign_labels = "kmeans"
 elif algo == "Girvan-Newman":
-    k = st.sidebar.slider("k", 2, 10, 2, 1, help="Number of Communities")
+    k = st.sidebar.slider("Resultion", 2, 10, 2, 1, help="Number of Communities")
 run_clicked = st.sidebar.button("Run", type="primary")
 run_disturbance = False
 show_perturbed_graph = False
@@ -383,7 +465,8 @@ if st.session_state.get("communities") is not None:
         "Run disturbance test (remove 5%)",
         help="Removes 5% of links and re-evaluates faction stability.",
     )
-
+    if run_disturbance:
+        st.session_state.scroll_to_disturbance = True
     show_perturbed_graph = st.sidebar.checkbox(
         "Show perturbed graph",
         value=False,
@@ -436,7 +519,20 @@ else:
         height_px=HEIGH_PX,
     )
     st.components.v1.html(html, height=HEIGH_PX, scrolling=False)
-    st.subheader("Robustness check (optional)")
+    st.markdown('<div id="disturbance-results"></div>', unsafe_allow_html=True)
+    st.subheader("Robustness check")
+
+    if st.session_state.get("scroll_to_disturbance", False):
+        st.components.v1.html(
+            """
+            <script>
+              const el = window.parent.document.getElementById("disturbance-results");
+              if (el) el.scrollIntoView({behavior: "smooth"});
+            </script>
+            """,
+            height=0,
+        )
+        st.session_state.scroll_to_disturbance = False
 
     st.caption(
         "This test removes 5% of links to simulate missing information and checks whether the detected factions remain stable."
@@ -456,13 +552,17 @@ else:
             if (st.session_state.algo_used in ("Spectral", "Girvan-Newman"))
             else None,
         )
-
+        st.session_state.scroll_to_disturbance = True
+        st.rerun()
     if st.session_state.disturbance_results is None:
         st.info(
             "Click **Run disturbance test (remove 5%)** in the sidebar to evaluate stability."
         )
     else:
         results = st.session_state.disturbance_results
+        membership_before = st.session_state.membership
+        membership_after = communities_to_membership(results["communities_perturbed"])
+        changed_nodes = compute_changed_nodes(membership_before, membership_after)
         st.subheader("Stability summary")
 
         if results["NMI"] >= 0.8 and results["ARI"] >= 0.8:
@@ -495,8 +595,12 @@ else:
             st.subheader("Perturbed network")
             membership_p = communities_to_membership(results["communities_perturbed"])
             html_p = build_pyvis_html(
-                results["G_perturbed"], membership_p, height_px=HEIGH_PX
+                results["G_perturbed"],
+                membership_after,
+                height_px=HEIGH_PX,
+                changed_nodes=changed_nodes,
             )
+
             st.components.v1.html(html_p, height=HEIGH_PX, scrolling=False)
 
     with st.expander("↓ Community details", expanded=False):
