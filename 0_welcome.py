@@ -19,14 +19,47 @@ with col_status:
     """, unsafe_allow_html=True)
 
 st.divider()
-st.markdown("""### WELCOME, ANALYST
-This system provides tactical insights into the identified clandestine network (N=62). 
-Utilizing high-fidelity **Network Science** and **Mathematical Optimization**, 
-this platform identifies critical nodes and organizational vulnerabilities.
 
-#### // CURRENT_OBJECTIVES:
-1. **IDENTIFY KEY PLAYERS**: Use Centrality measures (Degree, Eigenvector, Katz) to locate leadership hubs.
-2. **COMMUNITY DETECTION**: Map distinct operational cells or "factions" within the topology.
-3. **RESILIENCE ANALYSIS**: Measure network stability using the **Kemeny Constant**.
-4. **DISRUPTION STRATEGY**: Optimize arrest protocols to maximize network degradation.
-""")
+with st.container():
+    st.markdown("### Welcome, Analyst")
+    st.markdown(
+    "You are working with a decision support system for analyzing clandestine communication networks "
+    "using network science and mathematical optimization.\n\n"
+    "<span style='color:#8b949e; font-size:0.85em;'>"
+    "Scope: static snapshot of observed communications (62 members). "
+    "Results reflect structural patterns rather than intent or hierarchy."
+    "</span>",
+    unsafe_allow_html=True,
+    )
+
+
+
+st.markdown("### What this system does")
+
+st.markdown(
+    """
+    - 🧭 **Identifies structurally important members** using multiple network perspectives  
+    - 🧩 **Classifies members into functional roles** based on network position  
+    - 🕸️ **Detects groups and structural weak points** within the network  
+    - 🧪 **Assesses network resilience** via simulated member removal  
+    - 🎯 **Supports arrest planning** through structured analytical recommendations
+    """
+)
+
+
+
+st.markdown(
+    "<div style='padding:12px; background-color: rgba(88,166,255,0.08); "
+    "border-left: 3px solid #58a6ff;'>"
+    "<strong>Analyst guidance</strong><br>"
+    "Use the system comparatively: explore patterns, contrast perspectives, "
+    "and treat disagreement as analytical signal."
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
+
+
+
+

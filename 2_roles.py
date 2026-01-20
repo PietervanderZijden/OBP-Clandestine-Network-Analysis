@@ -13,10 +13,13 @@ apply_tactical_theme()
 
 st.title("NETWORK ROLE IDENTIFICATION")
 st.caption("SOCIAL ROLE ANALYSIS ENGINE")
-st.info(
-  "How to read: Colors = role type. Bigger nodes = more embedded in the network. "
-  "Confidence = how much the different methods agree."
+st.markdown(
+    "Use this page to **assign an operational role** to each member (core / intermediate / peripheral) "
+    "based on their network position. \n\n"
+    "**Start:** pick a role method → inspect the colored network map → click a member on the right to see rationale and evidence."
 )
+
+
 
 
 @st.cache_data
@@ -52,8 +55,17 @@ df_overlap = df_overlap.set_index("node", drop=False)
 method_ui = st.selectbox(
     "Role method (choose perspective)",
     ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
-    index=0
+    index=None,
+    placeholder="Select a method...",
+    help=(
+        "Each method assigns roles using a different network signal. "
+        "Use Confidence to see how much the other methods agree with your choice."
+    )
 )
+
+if method_ui is None:
+    st.warning("Select a role method to generate the role map and member inspection.")
+    st.stop()
 
 METHOD_KEY = {
     "Influence (flow)": "Flow",
@@ -61,6 +73,15 @@ METHOD_KEY = {
     "Importance type": "Centrality",
     "Similar contacts": "Overlap"
 }[method_ui]
+
+if METHOD_KEY == "Flow":
+    st.markdown("**What this method measures:** Influence via multi-step information flow through the network.")
+elif METHOD_KEY == "Distance":
+    st.markdown("**What this method measures:** How many steps away a member is from the high-degree core.")
+elif METHOD_KEY == "Centrality":
+    st.markdown("**What this method measures:** Whether a member behaves like a hub, bridge, or peripheral based on centrality signals.")
+else:
+    st.markdown("**What this method measures:** Similarity of contact patterns (structural equivalence / overlap).")
 
 
 
@@ -153,18 +174,6 @@ df_display["confidence"] = [confidence_for_node(i) for i in df_display["node"]]
 
 
 
-c1, c2, c3 = st.columns(3)
-c1.metric(
-  "Core-like members", int((df_display["role_label"] == "Core-like (high embeddedness)").sum())
-)
-c2.metric(
-  "Peripheral members",
-  int((df_display["role_label"] == "Peripheral (low embeddedness)").sum())
-)
-
-c3.metric("Avg. confidence",
-          f"{df_display['confidence'].mean():.0%}")
-
 ROLE_COLORS = {
   "Core-like (high embeddedness)": "#e74c3c",
   "Intermediate (moderate embeddedness)": "#f39c12",
@@ -173,16 +182,24 @@ ROLE_COLORS = {
 }
 
 def role_explanation(role):
+  if "Extreme peripheral" in role:
+    return "Very few connections; likely isolated or inactive."
   if "Core-like" in role:
     return "Highly connected and influential across multiple parts of the network."
   if "Intermediate" in role:
     return "Moderately connected; often acts as a link between core and peripheral members."
   if "Peripheral" in role:
     return "Limited interactions; participates in few network pathways."
-  return "Very few connections; likely isolated or inactive."
+  return "Role description not available."
+
 
 
 def why_we_think_so(role: str) -> list[str]:
+    if "Extreme peripheral" in role:
+        return [
+            "Has very few (or no) observable ties in the data.",
+            "Minimal network presence detected."
+        ]
     if "Core-like" in role:
         return [
             "Appears in many multi-step connection routes (high network presence).",
@@ -198,10 +215,8 @@ def why_we_think_so(role: str) -> list[str]:
             "Has few direct ties compared with most members.",
             "Rarely part of longer connection routes."
         ]
-    return [
-        "Has very few (or no) observable ties in the data.",
-        "Minimal network presence detected."
-    ]
+    return ["No explanation available."]
+
 
 
 def plot_network(G, df_display):
@@ -259,9 +274,31 @@ def plot_network(G, df_display):
   )
   return fig
 
-col1, col2 = st.columns([2.2, 1])
+
+st.caption(
+    "Summary for the selected method: counts show how many members fall in each role; "
+    "Avg. confidence = average % of methods that assign the same role as the selected method."
+)
+
+m1, m2, m3, m4, m5 = st.columns(5)
+m1.metric("Core-like", int((df_display["role_label"] == "Core-like (high embeddedness)").sum()))
+m2.metric("Intermediate", int((df_display["role_label"] == "Intermediate (moderate embeddedness)").sum()))
+m3.metric("Peripheral", int((df_display["role_label"] == "Peripheral (low embeddedness)").sum()))
+m4.metric("Extreme peripheral", int((df_display["role_label"] == "Extreme peripheral / near isolated").sum()))
+m5.metric("Avg. confidence", f"{df_display['confidence'].mean():.0%}")
+
+
+col1, col2 = st.columns([3, 2])
 with col1:
   st.subheader("Role Map")
+  st.info(
+  "How to read: Colors = role type. Bigger nodes = more embedded in the network. "
+  "Confidence = how much the different methods agree."
+  )  
+  st.caption(
+    "Legend: Core-like = red, Intermediate = orange, Peripheral = blue, Extreme peripheral = gray."
+  )
+
   st.plotly_chart(plot_network(G, df_display), use_container_width=True)
 with col2:
   st.subheader("Member inspection")
@@ -270,6 +307,8 @@ with col2:
   row = df_display.loc[node_id]
   contacts = get_direct_contacts(G, int(node_id))
 
+
+  st.caption("Need context? Open **Direct contacts** to see who this member is directly linked to.")
   with st.popover(f"Direct contacts ({len(contacts)})"):
       if contacts:
           st.write(", ".join(map(str, contacts)))
