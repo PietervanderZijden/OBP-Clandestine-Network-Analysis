@@ -53,6 +53,7 @@ col_title, col_status = st.columns([3, 1])
 
 with col_title:
     st.title("DATA IMPORTING TOOL")
+    st.caption("Upload, validate, and activate network datasets for system-wide analysis.")
     
 with col_status:
     count = len(st.session_state['data_registry'])
