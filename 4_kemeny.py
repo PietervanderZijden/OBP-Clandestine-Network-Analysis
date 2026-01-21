@@ -592,6 +592,9 @@ if "objective" not in st.session_state:
     st.session_state.objective = "Disrupt communication (maximize K)"
 
 st.sidebar.subheader("Objective")
+
+
+
 st.sidebar.radio(
     " ",
     ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
