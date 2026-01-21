@@ -148,7 +148,7 @@ graph = st.session_state.get("network_graph")
 if graph is None:
     graph = load_graph_cached(FILE_PATH)  # fallback to example file
 
-st.write("Using imported graph:", "network_graph" in st.session_state) #TODO aaaa
+# st.write("Using imported graph:", "network_graph" in st.session_state) #TODO aaaa
 st.write("Nodes:", graph.number_of_nodes(), "Edges:", graph.number_of_edges())
 
 
