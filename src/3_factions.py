@@ -580,7 +580,7 @@ with tab_explore:
             "<hr style='margin:8px 0; border-color:#333;'>", unsafe_allow_html=True
         )
         run_disturbance = st.sidebar.button(
-            "Run disturbance test (remove 5%)",
+            "Run disturbance test",
             help="Removes 5% of links and re-evaluates faction stability.",
         )
         if run_disturbance:
@@ -625,7 +625,7 @@ with tab_explore:
         membership = st.session_state.membership
         Q_before = float(modularity(G, communities))
         st.success(
-            "Factions detected. Open **Community details** below to inspect members."
+            "Factions detected. Click on **Add to comparison** to compare the output or on **Run disturbance test** to test the robustness of the Algorithm."
         )
         st.subheader("Results")
         c1, c2, c3 = st.columns(3)
