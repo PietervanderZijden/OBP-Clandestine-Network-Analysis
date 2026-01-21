@@ -43,7 +43,9 @@ layout_map = compute_layout(G, metadata["name"])
 
 # The roles_logic.py script expects a SciPy Sparse Matrix (A),
 # so we simply convert the NetworkX graph 'G' into that format.
-A = nx.to_scipy_sparse_array(G, format='csr')
+nodes = sorted(G.nodes())
+A = nx.to_scipy_sparse_array(G, nodelist=nodes, format="csr")
+
 
 # -------------------------------------
 
@@ -53,10 +55,11 @@ def get_direct_contacts(G: nx.Graph, node_id: int) -> list[int]:
 
 
 @st.cache_data
-def compute_roles(_A):
-  return run_all_role_methods(_A)
+def compute_roles_for_source(_A, source_name: str):
+    return run_all_role_methods(_A)
 
-results = compute_roles(A)
+results = compute_roles_for_source(A, metadata["name"])
+
 
 df_flow = results["df_flow"]
 df_dist = results["df_dist"]
