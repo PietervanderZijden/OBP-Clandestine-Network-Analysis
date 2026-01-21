@@ -560,7 +560,45 @@ def show_node(i: int) -> int:
 apply_tactical_theme()
 
 st.title("Kemeny Constant — Edge Removal Analysis")
-st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports directed/weighted graphs.")
+
+# st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports directed/weighted graphs.")
+
+with st.expander("🧭 Quick guide", expanded=False):
+    st.markdown(
+        """
+*Step 1 — Choose edges to remove*
+Select edges directly in the 3D graph (click an edge), or type an edge in the input box (format `u-v`, 1-based) and press **Add**.
+
+*Step 2 — Remove / undo*
+Click **Remove selected edges** to apply the removal and recompute Kemeny.  
+Use the **Removed edges (click to undo)** buttons to restore any edge (not only the last one).  
+Use **Reset all removals** to return to the baseline network.
+
+*Step 3 — Read the metrics*
+- *Baseline K (K0)*: Kemeny constant of the original network.  
+- *Current K*: Kemeny after your removals, with ΔK shown (and %ΔK if enabled).  
+- *Connected / LCC*: indicates whether K is computed on the *Full graph* or on the *largest connected component*.
+
+*Step 4 — Interpret the result (important)*
+While the graph stays connected, ΔK reflects changes in *global* navigability (average travel/hitting behavior).  
+If the graph becomes disconnected, K is reported on the **largest component (LCC/LSCC)** and ΔK is **not directly comparable** to the connected baseline as a global connectivity measure.
+
+Hint: keep “Compute recommendations” off during live demo; turn it on only when you need the top-5 suggestions.
+        """
+    )
+
+#----Sidebar mode----->
+if "objective" not in st.session_state:
+    st.session_state.objective = "Disrupt communication (maximize K)"
+
+st.sidebar.subheader("Objective")
+st.sidebar.radio(
+    " ",
+    ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
+    key="objective",
+)
+want_disrupt = st.session_state.objective.startswith("Disrupt")
+#<----Sidebar mode----
 
 # --- 1. DATA LOADING (Standardized) ---
 G_raw, metadata = get_active_network()
@@ -582,30 +620,39 @@ if st.session_state.kemeny_target_cache != metadata['name']:
 # Convert to Matrix for Kemeny math
 A_raw = nx.to_scipy_sparse_array(G_raw, format='csr')
 
-with st.expander("↓ Graph settings", expanded=False):
-    # status line (neutral)
-    detected_msg = (
-        f"Detected: {'directed' if st.session_state.get('k_directed', False) else 'undirected'}, "
-        f"{'weighted' if st.session_state.get('k_keep_weights', False) else 'unweighted'}"
-    )
-    st.caption(detected_msg)
+SHOW_GRAPH_SETTINGS = False
 
-    # optional override
-    override = st.checkbox("Override detection", value=False, key="k_override_detect")
+if SHOW_GRAPH_SETTINGS:
+    with st.expander("↓ Graph settings", expanded=False):
+        # status line (neutral)
+        detected_msg = (
+            f"Detected: {'directed' if st.session_state.get('k_directed', False) else 'undirected'}, "
+            f"{'weighted' if st.session_state.get('k_keep_weights', False) else 'unweighted'}"
+        )
+        st.caption(detected_msg)
 
-    if override:
-        directed = st.checkbox("Directed graph", value=st.session_state.get("k_directed", False), key="k_directed_manual")
-        keep_weights = st.checkbox("Use weights (do not binarize)", value=st.session_state.get("k_keep_weights", False), key="k_keep_weights_manual")
-    else:
-        directed = st.session_state.get("k_directed", False)
-        keep_weights = st.session_state.get("k_keep_weights", False)
+        # optional override
+        override = st.checkbox("Override detection", value=False, key="k_override_detect")
 
-    lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05, key="k_lazy_alpha")
+        if override:
+            directed = st.checkbox("Directed graph", value=st.session_state.get("k_directed", False), key="k_directed_manual")
+            keep_weights = st.checkbox("Use weights (do not binarize)", value=st.session_state.get("k_keep_weights", False), key="k_keep_weights_manual")
+        else:
+            directed = st.session_state.get("k_directed", False)
+            keep_weights = st.session_state.get("k_keep_weights", False)
 
-    st.caption(
-        "Undirected mode symmetrizes by average: A <- (A + A^T)/2. "
-        "Lazy alpha > 0 can improve numerical stability for periodic chains."
-    )
+        lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05, key="k_lazy_alpha")
+
+        st.caption(
+            "Undirected mode symmetrizes by average: A <- (A + A^T)/2. "
+            "Lazy alpha > 0 can improve numerical stability for periodic chains."
+        )
+else:
+    # still define settings so the page runs
+    directed = st.session_state.get("k_directed", False)
+    keep_weights = st.session_state.get("k_keep_weights", False)
+    lazy_alpha = float(st.session_state.get("k_lazy_alpha", 0.0))
+
 
 settings = GraphSettings(
     directed=directed, 
@@ -660,7 +707,7 @@ scope_now, K_now, n_now = kemeny_score(A_state, directed=settings.directed, lazy
 col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
 col1.metric("Nodes", str(G_state.number_of_nodes()))
 col2.metric("Edges (current)", str(G_state.number_of_edges()))
-col3.metric("Scope used for K", f"{scope_now} (n={n_now})")
+col3.metric("Largest Connected Component", f"{scope_now} (n={n_now})")
 col4.metric(conn_label, "Yes" if connected_now else "No")
 
 
@@ -671,12 +718,17 @@ with kcol2:
     dK = K_now - K0
     pct = (dK / K0 * 100.0) if K0 != 0 else 0.0
 
+    want_disrupt = st.session_state.objective.startswith("Disrupt")
+
+    good_dK = (dK >= 0) if want_disrupt else (dK <= 0)
+    good_pct = (pct >= 0) if want_disrupt else (pct <= 0)
+
     st.metric("Current Kemeny constant", f"{K_now:.6f}")
 
-    def _pill(value_str: str, positive: bool) -> str:
-        bg = "rgba(0, 200, 83, 0.18)" if positive else "rgba(255, 82, 82, 0.18)"
-        fg = "rgb(0, 200, 83)" if positive else "rgb(255, 82, 82)"
-        arrow = "↑" if positive else "↓"
+    def _pill(value_str: str, good: bool) -> str:
+        bg = "rgba(0, 200, 83, 0.18)" if good else "rgba(255, 82, 82, 0.18)"
+        fg = "rgb(0, 200, 83)" if good else "rgb(255, 82, 82)"
+        arrow = "↑" if good else "↓"
         return (
             f'<span style="display:inline-flex; align-items:center; gap:6px;'
             f' padding:2px 10px; border-radius:999px; background:{bg}; color:{fg};'
@@ -686,8 +738,8 @@ with kcol2:
     
     pill_html = (
         '<div style="display:flex; gap:10px; align-items:center; margin-top:-6px;">'
-        + _pill(f"{dK:+.6f}", dK >= 0)
-        + _pill(f"{pct:+.2f}%", pct >= 0)
+        + _pill(f"{dK:+.6f}", good_dK)
+        + _pill(f"{pct:+.2f}%", good_pct)
         + "</div>"
     )
 
@@ -838,7 +890,7 @@ else:
 
 # --- Fallback removal UI (insurance) ---
 with st.expander(
-    "↓ Edge table removal",
+    "Edge table removal",
     expanded=(not interactive_ok),
 ):
     if interactive_ok:
@@ -935,7 +987,7 @@ st.subheader("Next-step recommendations (Top 5)")
 if "objective" not in st.session_state:
     st.session_state.objective = "Disrupt communication (maximize K)"
 
-with st.expander("↓ Next-step recommendations (Top 5)", expanded=st.session_state.get("compute_reco", False)):
+with st.expander(" Next-step recommendations (Top 5)", expanded=st.session_state.get("compute_reco", False)):
     compute_reco = st.checkbox(
         "Compute recommendations (slow; runs many Kemeny computations)",
         key="compute_reco",
@@ -945,18 +997,11 @@ with st.expander("↓ Next-step recommendations (Top 5)", expanded=st.session_st
     if not compute_reco:
         st.info("Recommendations are off. Turn on the checkbox to compute the top-5.")
     else:
-        objective = st.radio(
-            "Objective",
-            ["Disrupt communication (maximize K)", "Improve connectivity (minimize K)"],
-            horizontal=True,
-            key="objective",
-        )
-        want_disrupt = objective.startswith("Disrupt")
-
         st.caption(
             "Recommendations are computed for the NEXT removal given the current removed set. "
             "K is always computed on Full graph if possible; otherwise on LCC/LSCC."
         )
+        want_disrupt = st.session_state.objective.startswith("Disrupt")
 
         # Candidate edges
         edges_df = remaining_edges_df_from_edges0(edges0, st.session_state.removed_set)
