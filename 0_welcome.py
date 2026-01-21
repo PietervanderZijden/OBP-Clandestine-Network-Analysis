@@ -38,11 +38,11 @@ st.markdown("### What this system does")
 
 st.markdown(
     """
-    - 🧭 **Identifies structurally important members** using multiple network perspectives  
-    - 🧩 **Classifies members into functional roles** based on network position  
-    - 🕸️ **Detects groups and structural weak points** within the network  
-    - 🧪 **Assesses network resilience** via simulated member removal  
-    - 🎯 **Supports arrest planning** through structured analytical recommendations
+    - **Identifies structurally important members** using multiple network perspectives  
+    - **Classifies members into functional roles** based on network position  
+    - **Detects groups and structural weak points** within the network  
+    - **Assesses network resilience** via simulated member removal  
+    - **Supports arrest planning** through structured analytical recommendations
     """
 )
 
