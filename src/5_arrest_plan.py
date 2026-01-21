@@ -302,7 +302,7 @@ G_display = res["graph"] if res is not None else graph
 layout_map = compute_fixed_layout(G_display)
 
 
-st.write(f"Nodes: **{G_display.number_of_nodes()}**  |  Edges: **{G_display.number_of_edges()}**")
+# st.write(f"Nodes: **{G_display.number_of_nodes()}**  |  Edges: **{G_display.number_of_edges()}**")
 
 
 
