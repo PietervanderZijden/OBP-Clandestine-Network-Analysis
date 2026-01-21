@@ -126,16 +126,15 @@ def communities_split_summary(communities, assignment: dict[int, int]) -> pd.Dat
 
 
 # APP
-st.title("Part 5 — Department assignment dashboard")
-import inspect
-# st.write("Pipeline signature:", inspect.signature(run_part5_pipeline))
+st.title("Arrest Plan")
 
-with st.expander("How to use this page", expanded=True):
+with st.expander("📘 Quick Guide", expanded=True):
     st.markdown(
-        "1) Choose **Community detection** (how the network is grouped into factions).\n\n"
-        "2) Adjust the settings that appear (some options only show for certain methods).\n\n"
-        "3) Click **Run pipeline**.\n\n"
-        "4) Read the **Regret summary and the graph** — lower Regret is better and red edges are showing warning connections across departments.\n"
+        "**Step 1** — Choose **Community detection** (how the network is grouped into factions).\n\n"
+        "**Step 2** — Adjust the settings that appear (some options only show for certain methods).\n\n"
+        "**Step 3** — Click **Run pipeline**.\n\n"
+        "**Step 4** — Read the **Regret summary and the graph** (lower Regret is better and red edges are showing warning connections across departments).\n\n"
+        "_Hint: click on the ? to learn more about the methods and parameters_"
     )
 
 
@@ -145,14 +144,10 @@ M = graph.number_of_edges()
 
 cap_now = (N + 1) // 2
 
-# st.write("Has edge (50,16)?", graph.has_edge(50, 16)) just testing
 
 st.sidebar.header("Controls")
 st.sidebar.markdown("### Assignment settings")
-# st.sidebar.caption(
-#     "Choose how factions are detected and how strictly they are kept together "
-#     "when assigning members to departments."
-# )
+
 
 community_method = st.sidebar.selectbox(
     "Community detection",
@@ -221,27 +216,6 @@ same_comm_multiplier = st.sidebar.slider(
 )
 
 
-# max_iters = st.sidebar.slider(
-#     "Optimization effort",
-#     10, 500, 100, 10,
-#     key="max_iters",
-#     help=(
-#         "How hard the system tries to improve the assignment. "
-#         "Higher values may find better solutions but take longer."
-#     ),
-# )
-#
-#
-# candidate_k = st.sidebar.slider(
-#     "Swap search width",
-#     4, 31, 12, 1,
-#     key="candidate_k",
-#     help=(
-#         "How many high-risk members are considered when swapping departments. "
-#         "Higher values explore more options but increase computation time."
-#     ),
-# )
-
 # graph-aware slider ranges + defaults
 max_iters_min = 10
 max_iters_max = max(200, min(2000, 30 * N))          # grows with N, capped
@@ -277,31 +251,9 @@ candidate_k = st.sidebar.slider(
 run_clicked = st.sidebar.button("Run pipeline", type="primary", key="p5_run")
 
 
-
-# height_px = st.sidebar.slider("Graph height", 400, 1000, 650, 50)
-# same_comm_multiplier = st.sidebar.slider("Same-community penalty", 1.0, 5.0, 2.0, 0.5)
-# max_iters = st.sidebar.slider("Max iterations (moves/swaps)", 10, 500, 100, 10)
-# candidate_k = st.sidebar.slider("Swap candidate_k", 4, 31, 12, 1)
-#
-# run_clicked = st.sidebar.button("Run pipeline", type="primary")
-
 if "result" not in st.session_state:
     st.session_state.result = None
 
-# if run_clicked:
-#     st.session_state.result = run_pipeline(
-#         graph, same_comm_multiplier=same_comm_multiplier, max_iters=max_iters, candidate_k=candidate_k
-#     )
-
-# if run_clicked:
-#     st.session_state.result = run_part5_pipeline(
-#         FILE_PATH,
-#         same_comm_multiplier=same_comm_multiplier,
-#         seed=123,
-#         max_move_iters=max_iters,
-#         max_swap_iters=max_iters,
-#         candidate_k=candidate_k,
-#     )
 
 if run_clicked:
     st.session_state.result = run_part5_pipeline(
@@ -337,7 +289,6 @@ else:
     st.subheader("Regret summary")
     col1, col2 = st.columns(2)
     col1.metric("Initial regret (R0)", f"{res['R0']:.2f}")
-    # col2.metric("After moves (R1)", f"{res['R1']:.2f}")
     col2.metric("After swaps (R1)", f"{res['R2']:.2f}")
 
     with st.expander("What does “Regret” mean?", expanded=False):
@@ -357,8 +308,6 @@ else:
 
 
     st.subheader("Graph (colored by Dept)")
-    # html = build_pyvis_html_by_dept(graph, assignment=res["assignment2"], height_px=GRAPH_HEIGHT_PX )
-    # st.components.v1.html(html, height=GRAPH_HEIGHT_PX , scrolling=False)
 
     build_agraph_by_dept(
         graph,
