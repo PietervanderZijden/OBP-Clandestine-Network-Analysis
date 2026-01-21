@@ -2,6 +2,43 @@ import streamlit as st
 from ui_components import apply_tactical_theme
 # Import the logic functions we just wrote
 from src.data_manager import load_repository_data, parse_mtx
+import networkx as nx
+
+
+def df_to_graph(edge_df, n_nodes=None):
+    """
+    Builds an undirected NetworkX graph from an edge list DataFrame.
+    Expects either:
+      - columns: ['source','target'] (+ optional 'weight')
+      - or the first 2 columns are the endpoints (+ optional 'weight')
+    Assumes node IDs are already ints and consistent (0-based OR 1-based, but consistent).
+    """
+    # pick endpoint columns
+    if "source" in edge_df.columns and "target" in edge_df.columns:
+        s_col, t_col = "source", "target"
+    else:
+        s_col, t_col = edge_df.columns[0], edge_df.columns[1]
+
+    weighted = "weight" in edge_df.columns
+
+    G = nx.Graph()
+
+    # optionally pre-add nodes (helps if isolated nodes exist)
+    if n_nodes is not None:
+        # If your nodes are 0..n-1, keep this.
+        # If your nodes are 1..n, change to range(1, n_nodes+1)
+        G.add_nodes_from(range(n_nodes))
+
+    if weighted:
+        for s, t, w in edge_df[[s_col, t_col, "weight"]].itertuples(index=False):
+            if int(s) != int(t):
+                G.add_edge(int(s), int(t), weight=float(w))
+    else:
+        for s, t in edge_df[[s_col, t_col]].itertuples(index=False):
+            if int(s) != int(t):
+                G.add_edge(int(s), int(t), weight=1.0)
+
+    return G
 
 # --- Page Config ---
 st.set_page_config(page_title="DSS | Data Ingest", layout="wide")
@@ -92,6 +129,8 @@ with col_select:
                 st.session_state['network_data'] = data_pack['df']
                 st.session_state['network_shape'] = data_pack['shape']
                 st.session_state['data_source'] = data_pack['name']
+                n_nodes = data_pack["shape"][0]
+                st.session_state["network_graph"] = df_to_graph(data_pack["df"], n_nodes=n_nodes)
 
                 st.divider()
                 

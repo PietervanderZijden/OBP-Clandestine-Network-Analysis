@@ -10,7 +10,7 @@ from src.arrest_algorithms import (
     compute_regret,
     improve_with_greedy_moves,
     improve_with_balanced_swaps,
-    run_part5_pipeline
+    run_part5_pipeline, run_part5_pipeline_graph
 )
 
 FILE_PATH = "data/clandestine_network_example.mtx"
@@ -27,10 +27,10 @@ def load_graph_cached(file_path: str) -> nx.Graph:
     G.remove_edges_from(nx.selfloop_edges(G))
     return G
 
-@st.cache_data
 def compute_fixed_layout(_graph: nx.Graph):
     pos = nx.spring_layout(_graph, seed=42, k=1.2)
-    return {u: (pos[u][0] * 1000, pos[u][1] * 1000) for u in _graph.nodes()}
+    return {int(u): (pos[u][0] * 1000, pos[u][1] * 1000) for u in _graph.nodes()}
+
 
 
 
@@ -53,6 +53,10 @@ def build_agraph_by_dept(
     layout_map: dict[int, tuple[float, float]],
 ):
     #safety check
+    missing = set(map(int, G.nodes())) - set(layout_map.keys())
+    if missing:
+        raise RuntimeError(f"Layout missing nodes: {sorted(missing)}")
+
     nodes_int = {int(n) for n in G.nodes()}
     assign_int = {int(n) for n in assignment.keys()}
     assert nodes_int == assign_int, "Assignment missing nodes or has extra nodes."
@@ -139,7 +143,15 @@ with st.expander("📘 Quick Guide", expanded=True):
     )
 
 
-graph = load_graph_cached(FILE_PATH)
+# graph = load_graph_cached(FILE_PATH)
+graph = st.session_state.get("network_graph")
+if graph is None:
+    graph = load_graph_cached(FILE_PATH)  # fallback to example file
+
+# st.write("Using imported graph:", "network_graph" in st.session_state) #TODO aaaa
+st.write("Nodes:", graph.number_of_nodes(), "Edges:", graph.number_of_edges())
+
+
 N = graph.number_of_nodes()
 M = graph.number_of_edges()
 
@@ -248,9 +260,28 @@ if "result" not in st.session_state:
     st.session_state.result = None
 
 
+# if run_clicked:
+#     st.session_state.result = run_part5_pipeline(
+#         FILE_PATH,
+#         same_comm_multiplier=same_comm_multiplier,
+#         seed=123,
+#         max_move_iters=max_iters,
+#         max_swap_iters=max_iters,
+#         candidate_k=candidate_k,
+#         community_method=community_method,
+#         resolution=resolution,
+#         k=k,
+#         assign_labels=assign_labels,
+#         two_level=two_level,
+#     )
+
 if run_clicked:
-    st.session_state.result = run_part5_pipeline(
-        FILE_PATH,
+    G = st.session_state.get("network_graph")
+    if G is None:
+        G = load_graph_cached(FILE_PATH)
+
+    st.session_state.result = run_part5_pipeline_graph(
+        G,
         same_comm_multiplier=same_comm_multiplier,
         seed=123,
         max_move_iters=max_iters,
@@ -267,8 +298,13 @@ if run_clicked:
 
 res = st.session_state.result
 
-st.write(f"Nodes: **{N}**  |  Edges: **{graph.number_of_edges()}**")
-layout_map = compute_fixed_layout(graph)
+G_display = res["graph"] if res is not None else graph
+layout_map = compute_fixed_layout(G_display)
+
+
+# st.write(f"Nodes: **{G_display.number_of_nodes()}**  |  Edges: **{G_display.number_of_edges()}**")
+
+
 
 if res is None:
     st.info("Click **Run pipeline** to compute an assignment.")
@@ -286,15 +322,15 @@ else:
 
     st.subheader("Regret & assignment quality")
 
-    # --- compute extra metrics ---
+    # compute extra metrics
     cross_edges = sum(
-        1 for u, v in graph.edges()
+        1 for u, v in res["graph"].edges()
         if res["assignment2"][int(u)] != res["assignment2"][int(v)]
     )
-    total_edges = graph.number_of_edges()
+    total_edges = res["graph"].number_of_edges()
     pct_cross = 0.0 if total_edges == 0 else 100.0 * cross_edges / total_edges
 
-    # --- layout ---
+    #  layout
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Initial regret (R0)", f"{res['R0']:.2f}")
@@ -323,8 +359,10 @@ else:
 
     st.subheader("Graph (colored by Dept)")
 
+    G = res["graph"]
+
     build_agraph_by_dept(
-        graph,
+        G,
         assignment=res["assignment2"],
         layout_map=layout_map,
     )

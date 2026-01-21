@@ -20,6 +20,7 @@ Dept = int  # Dept A = 0, Dept B = 1
 
 #DATA INIT
 
+
 def _resolve_path(path: str):
     path = Path(path)
     project_root = Path(__file__).resolve().parents[1]
@@ -78,8 +79,7 @@ def build_comm_id(communities):
     return comm_id
 
 def community_first_assignment(graph, communities, capacity): #TODO capacity var to delete
-    num_of_nodes = graph.number_of_nodes()
-    cap = num_of_nodes / 2
+    cap = int(capacity)
 
     #sort comms and change to a list of sets
     comms = sorted((set(c) for c in communities), key=len, reverse=True)
@@ -258,19 +258,96 @@ def improve_with_balanced_swaps(
 
 Node = int
 
+# def detect_communities(
+#     graph,
+#     method,
+#     resolution= 0.4,
+#     k= 2,
+#     assign_labels= "kmeans",
+#     two_level= True,):
+#     """Return list[set[node]] communities for the chosen method"""
+#
+#     if method == "Louvain":
+#         return [set(map(int, c)) for c in nx.community.louvain_communities(graph, resolution=resolution, seed=42, weight="weight")]
+#
+#     if method == "Leiden":
+#         nodes = list(graph.nodes())
+#         node_to_idx = {n: i for i, n in enumerate(nodes)}
+#         idx_to_node = {i: n for n, i in node_to_idx.items()}
+#         edges = [(node_to_idx[u], node_to_idx[v]) for u, v in graph.edges()]
+#         igG = ig.Graph(n=len(nodes), edges=edges, directed=False)
+#
+#         part = la.find_partition(
+#             igG,
+#             la.RBConfigurationVertexPartition,
+#             resolution_parameter=resolution,
+#             seed=42,
+#         )
+#         return [{int(idx_to_node[i]) for i in block} for block in part]
+#
+#     if method == "Infomap":
+#         flags = "--silent"
+#         if two_level:
+#             flags = "--two-level --silent"
+#         im = Infomap(flags)
+#         for u, v, data in graph.edges(data=True):
+#             w = float(data.get("weight", 1.0))
+#             im.add_link(int(u), int(v), w)
+#         im.run()
+#
+#         comm_to_nodes = defaultdict(set)
+#         for node in im.iterTree():
+#             if node.isLeaf():
+#                 comm_to_nodes[node.moduleIndex()].add(int(node.physicalId))
+#         return list(comm_to_nodes.values())
+#
+#     if method == "Spectral":
+#         A = nx.to_scipy_sparse_array(graph, format="csr")
+#         A.indices = A.indices.astype("int32", copy=False)
+#         A.indptr = A.indptr.astype("int32", copy=False)
+#
+#         sc = SpectralClustering(
+#             n_clusters=k,
+#             affinity="precomputed",
+#             assign_labels=assign_labels,
+#             random_state=42,
+#         )
+#         labels = sc.fit_predict(A)
+#
+#         nodes = list(graph.nodes())
+#         comms = defaultdict(set)
+#         for n, c in zip(nodes, labels):
+#             comms[int(c)].add(int(n))
+#         return list(comms.values())
+#
+#     if method == "Girvan-Newman":
+#         gen = girvan_newman(graph)
+#         communities_tuple = None
+#         for _ in range(k - 1):
+#             communities_tuple = next(gen)
+#         return [set(map(int, c)) for c in communities_tuple]
+#
+#     raise ValueError(f"Unknown community detection method: {method}")
+
 def detect_communities(
     graph,
     method,
-    resolution= 0.4,
-    k= 2,
-    assign_labels= "kmeans",
-    two_level= True,):
+    resolution=0.4,
+    k=2,
+    assign_labels="kmeans",
+    two_level=True,
+):
     """Return list[set[node]] communities for the chosen method"""
 
     if method == "Louvain":
-        return [set(map(int, c)) for c in nx.community.louvain_communities(graph, resolution=resolution, seed=42, weight="weight")]
+        comms = [
+            set(map(int, c))
+            for c in nx.community.louvain_communities(
+                graph, resolution=resolution, seed=42, weight="weight"
+            )
+        ]
 
-    if method == "Leiden":
+    elif method == "Leiden":
         nodes = list(graph.nodes())
         node_to_idx = {n: i for i, n in enumerate(nodes)}
         idx_to_node = {i: n for n, i in node_to_idx.items()}
@@ -283,12 +360,10 @@ def detect_communities(
             resolution_parameter=resolution,
             seed=42,
         )
-        return [{int(idx_to_node[i]) for i in block} for block in part]
+        comms = [{int(idx_to_node[i]) for i in block} for block in part]
 
-    if method == "Infomap":
-        flags = "--silent"
-        if two_level:
-            flags = "--two-level --silent"
+    elif method == "Infomap":
+        flags = "--two-level --silent" if two_level else "--silent"
         im = Infomap(flags)
         for u, v, data in graph.edges(data=True):
             w = float(data.get("weight", 1.0))
@@ -299,9 +374,9 @@ def detect_communities(
         for node in im.iterTree():
             if node.isLeaf():
                 comm_to_nodes[node.moduleIndex()].add(int(node.physicalId))
-        return list(comm_to_nodes.values())
+        comms = list(comm_to_nodes.values())
 
-    if method == "Spectral":
+    elif method == "Spectral":
         A = nx.to_scipy_sparse_array(graph, format="csr")
         A.indices = A.indices.astype("int32", copy=False)
         A.indptr = A.indptr.astype("int32", copy=False)
@@ -315,19 +390,28 @@ def detect_communities(
         labels = sc.fit_predict(A)
 
         nodes = list(graph.nodes())
-        comms = defaultdict(set)
+        tmp = defaultdict(set)
         for n, c in zip(nodes, labels):
-            comms[int(c)].add(int(n))
-        return list(comms.values())
+            tmp[int(c)].add(int(n))
+        comms = list(tmp.values())
 
-    if method == "Girvan-Newman":
+    elif method == "Girvan-Newman":
         gen = girvan_newman(graph)
         communities_tuple = None
         for _ in range(k - 1):
             communities_tuple = next(gen)
-        return [set(map(int, c)) for c in communities_tuple]
+        comms = [set(map(int, c)) for c in communities_tuple]
 
-    raise ValueError(f"Unknown community detection method: {method}")
+    else:
+        raise ValueError(f"Unknown community detection method: {method}")
+
+    covered = set().union(*comms) if comms else set()
+    missing = set(map(int, graph.nodes())) - covered
+    for u in missing:
+        comms.append({u})
+
+    return comms
+
 
 #Put together
 
@@ -409,6 +493,70 @@ def run_part5_pipeline(
         "comm_id": comm_id,
         "cap": cap,
         "init_sizes": (init.sizeA, init.sizeB),
+        "R0": R0,
+        "R1": R1,
+        "R2": R2,
+        "assignment0": assignment0,
+        "assignment1": assignment1,
+        "assignment2": assignment2,
+    }
+
+def run_part5_pipeline_graph(
+    graph: nx.Graph,
+    same_comm_multiplier: float = 2.0,
+    seed: int = 123,
+    max_move_iters: int = 200,
+    max_swap_iters: int = 100,
+    candidate_k: int = 12,
+    community_method="Louvain",
+    resolution=1.0,
+    k=2,
+    assign_labels="kmeans",
+    two_level=True,
+):
+    N = graph.number_of_nodes()
+    cap = math.ceil(N / 2)
+
+    communities = detect_communities(
+        graph,
+        method=community_method,
+        resolution=resolution,
+        k=k,
+        assign_labels=assign_labels,
+        two_level=two_level,
+    )
+
+    comm_id = build_comm_id(communities)
+
+    init = community_first_assignment(graph, communities, capacity=cap)
+    assignment0 = init.assignment.copy()
+    R0 = compute_regret(graph, assignment0, comm_id, same_comm_multiplier)
+
+    assignment1 = improve_with_greedy_moves(
+        graph,
+        assignment0.copy(),
+        comm_id,
+        cap,
+        same_comm_multiplier,
+        max_iters=max_move_iters,
+    )
+    R1 = compute_regret(graph, assignment1, comm_id, same_comm_multiplier)
+
+    assignment2 = improve_with_balanced_swaps(
+        graph,
+        assignment1.copy(),
+        comm_id,
+        same_comm_multiplier=same_comm_multiplier,
+        max_iters=max_swap_iters,
+        candidate_k=candidate_k,
+    )
+    R2 = compute_regret(graph, assignment2, comm_id, same_comm_multiplier)
+
+    return {
+        "graph": graph,
+        "communities": communities,
+        "comm_id": comm_id,
+        "cap": cap,
         "R0": R0,
         "R1": R1,
         "R2": R2,
