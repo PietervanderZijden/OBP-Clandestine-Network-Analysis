@@ -34,7 +34,8 @@ from ui_components import (
     COLOR_ALERT,
     COLOR_TEXT,
 )
-
+# --- NEW IMPORT ---
+from src.data_manager import get_active_network
 
 # -------------------------
 # Settings
@@ -49,16 +50,6 @@ class GraphSettings:
 # -------------------------
 # Graph loading + preprocessing
 # -------------------------
-@st.cache_data(show_spinner=False)
-def load_mtx_as_sparse(path: str) -> sp.csr_matrix:
-    A = mmread(path)
-    if not sp.issparse(A):
-        A = sp.csr_matrix(A)
-    else:
-        A = A.tocsr()
-    return A
-
-
 def detect_graph_properties(A: sp.csr_matrix, tol: float = 1e-12) -> tuple[bool, bool]:
     """
     Returns (is_directed, has_weights).
@@ -571,7 +562,25 @@ apply_tactical_theme()
 st.title("Kemeny Constant — Edge Removal Analysis")
 st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports directed/weighted graphs.")
 
-file_path = "data/clandestine_network_example.mtx"
+# --- 1. DATA LOADING (Standardized) ---
+G_raw, metadata = get_active_network()
+
+# *** FIX: DETECT TARGET CHANGE ***
+# If the target name is different from what Kemeny last saw,
+# we must RESET the removals, otherwise we apply old edges to the new graph.
+if "kemeny_target_cache" not in st.session_state:
+    st.session_state.kemeny_target_cache = ""
+
+if st.session_state.kemeny_target_cache != metadata['name']:
+    # New target detected! Wipe state.
+    st.session_state.removed_set = set()
+    st.session_state.removed_edges = []
+    st.session_state.selected_edges = set()
+    st.session_state.kemeny_target_cache = metadata['name']
+    st.rerun() # Restart page with clean state
+
+# Convert to Matrix for Kemeny math
+A_raw = nx.to_scipy_sparse_array(G_raw, format='csr')
 
 with st.expander("Graph settings", expanded=False):
     # status line (neutral)
@@ -604,17 +613,11 @@ settings = GraphSettings(
     lazy_alpha=float(lazy_alpha)
     )
 
-if not os.path.exists(file_path):
-    st.error(f"Data file not found: {file_path}")
-    st.stop()
-
-A_raw = load_mtx_as_sparse(file_path)
-
 is_dir, has_w = detect_graph_properties(A_raw)
 
-# Reset defaults when dataset changes (mtx_path is your dataset id)
-if st.session_state.get("_kemeny_dataset_path") != file_path:
-    st.session_state["_kemeny_dataset_path"] = file_path
+# Reset defaults when dataset changes (using metadata name as the ID)
+if st.session_state.get("_kemeny_dataset_path") != metadata['name']:
+    st.session_state["_kemeny_dataset_path"] = metadata['name']
     st.session_state["k_directed"] = bool(is_dir)
     st.session_state["k_keep_weights"] = bool(has_w)
 
@@ -830,7 +833,6 @@ else:
     st.caption("(none)")
 
 # --- Fallback removal UI (insurance) ---
-# --- Fallback removal UI (insurance) ---
 with st.expander(
     "Fallback: edge table removal (only needed if edge clicks don't work)",
     expanded=(not interactive_ok),
@@ -1042,5 +1044,4 @@ else:
         "- **Smaller component size**: indicates fragmentation (usually undesirable)."
     )
 
-st.divider()    
-
+st.divider()
