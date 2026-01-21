@@ -5,40 +5,41 @@ from streamlit_agraph import agraph, Node, Edge, Config
 
 # Import shared theme
 from ui_components import apply_tactical_theme, COLOR_VOID, COLOR_WIRE, COLOR_STEEL, COLOR_ALERT
-# Import the new manager
+
+# Import the data manager
 from src.data_manager import get_active_network
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="DSS | Intelligence & Centrality", layout="wide")
 apply_tactical_theme()
 
-# --- 1. DATA LOADING (Simplified) ---
-@st.cache_data
-def get_graph_and_layout():
-    """
-    Fetches the active graph (User selected OR Default Repo) 
-    and calculates the fixed layout positions.
-    """
-    # This single line now handles all fallback logic safely
-    G, meta = get_active_network()
+# --- 1. DATA LOADING (Fixed Caching) ---
+# A. Get the Active Graph (Fast, no cache needed)
+G, metadata = get_active_network()
 
-    # Calculate Layout (Fixed Seed for visual consistency)
-    pos = nx.spring_layout(G, seed=42, k=1.2)
-    
-    # Scale coordinates for the visualizer
+# B. Calculate Layout (Cached)
+# FIX: Added underscore to '_graph' so Streamlit ignores it during hashing
+@st.cache_data
+def calculate_layout(_graph, source_identifier):
+    """
+    Calculates layout. Refreshes only when source_identifier changes.
+    The underscore in '_graph' tells Streamlit not to hash the graph object.
+    """
+    pos = nx.spring_layout(_graph, seed=42, k=1.2)
     fixed_positions = {
         node: (coords[0] * 1000, coords[1] * 1000) 
         for node, coords in pos.items()
     }
-    
-    return G, fixed_positions, meta
+    return fixed_positions
 
-# Load Data
-G, layout_map, metadata = get_graph_and_layout()
+# Execute Layout
+layout_map = calculate_layout(G, metadata['name'])
+
 
 # --- 2. CENTRALITY CALCULATIONS ---
+# FIX: Ensure '_G' has the underscore here too
 @st.cache_data
-def calculate_all_centralities(_G):
+def calculate_all_centralities(_G, source_identifier):
     if _G.number_of_nodes() == 0: return {}
     
     degree = nx.degree_centrality(_G)
@@ -58,7 +59,7 @@ def calculate_all_centralities(_G):
         "Hybrid (Combined)": combined
     }
 
-centrality_results = calculate_all_centralities(G)
+centrality_results = calculate_all_centralities(G, metadata['name'])
 
 # --- 3. SIDEBAR CONTROLS ---
 with st.sidebar:
@@ -67,7 +68,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Show active target info in sidebar
+    # Active Target Display
     st.markdown(f"""
     <div style="font-family:'Share Tech Mono'; font-size:12px; color:#8b949e; margin-bottom:10px;">
         TARGET: <span style="color:#58a6ff">{metadata['name']}</span>
@@ -84,7 +85,7 @@ with st.sidebar:
         st.markdown("### FLOW_SETTINGS")
         if "target" not in st.session_state: st.session_state.target = first_node
         
-        # Validation check in case dataset changed
+        # Validate target exists in new dataset
         if st.session_state.target not in G.nodes():
              st.session_state.target = first_node
 
