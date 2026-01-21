@@ -72,9 +72,6 @@ df_overlap = df_overlap.set_index("node", drop=False)
 with st.sidebar:
     st.subheader("Roles settings")
     
-    # Optional: Display active target name
-    st.caption(f"Target: {metadata['name']}")
-    
     method_ui = st.selectbox(
         "Role method",
         ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
@@ -246,19 +243,18 @@ def why_we_think_so(role: str) -> list[str]:
 
 
 
-def agraph_network(G: nx.Graph, df_display: pd.DataFrame):
-    x, y = layout_map[int(n)]
-
+def agraph_network(G: nx.Graph, df_display: pd.DataFrame, layout_map: dict):
     # Build nodes
     nodes = []
     for n in G.nodes():
-        # Ensure node exists in display dataframe (handle disconnects)
-        if n not in df_display.index: continue
+        if n not in df_display.index: 
+            continue
         
         role = df_display.loc[n, "role_label"]
         conf = float(df_display.loc[n, "confidence"])
         emb = float(df_display.loc[n, "embeddedness_score"])
 
+        x, y = layout_map[int(n)]
         
         nodes.append(
             Node(
@@ -333,7 +329,8 @@ with col1:
     "Legend: Core-like = red, Intermediate = orange, Peripheral = blue, Extreme peripheral = gray."
   )
 
-  selected = agraph_network(G, df_display)
+  selected = agraph_network(G, df_display, layout_map)
+
 
 with col2:
   st.subheader("Member inspection")
