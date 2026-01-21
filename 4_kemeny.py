@@ -59,6 +59,24 @@ def load_mtx_as_sparse(path: str) -> sp.csr_matrix:
     return A
 
 
+def detect_graph_properties(A: sp.csr_matrix, tol: float = 1e-12) -> tuple[bool, bool]:
+    """
+    Returns (is_directed, has_weights).
+    - is_directed: True if A is not structurally symmetric
+    - has_weights: True if any nonzero weight is not ~1
+    """
+    A = A.tocsr()
+
+    # Structural symmetry (fast, robust)
+    is_directed = (A != A.T).nnz > 0
+
+    # Weights check
+    data = A.data
+    has_weights = bool(data.size) and bool(np.any(np.abs(data - 1.0) > tol))
+
+    return is_directed, has_weights
+
+
 def preprocess_adjacency(A_raw: sp.csr_matrix, settings: GraphSettings) -> sp.csr_matrix:
     """Return CSR adjacency suitable for random-walk transition construction."""
     A = A_raw.tocsr(copy=True).astype(float)
@@ -556,9 +574,23 @@ st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports dire
 file_path = "data/clandestine_network_example.mtx"
 
 with st.expander("Graph settings", expanded=False):
-    directed = st.checkbox("Directed graph (optional)", value=False, key="k_directed")
-    st.caption("Enable only if the input network is directed.")
-    keep_weights = st.checkbox("Use weights (do not binarize)", value=False, key="k_keep_weights")
+    # status line (neutral)
+    detected_msg = (
+        f"Detected: {'directed' if st.session_state.get('k_directed', False) else 'undirected'}, "
+        f"{'weighted' if st.session_state.get('k_keep_weights', False) else 'unweighted'}"
+    )
+    st.caption(detected_msg)
+
+    # optional override
+    override = st.checkbox("Override detection", value=False, key="k_override_detect")
+
+    if override:
+        directed = st.checkbox("Directed graph", value=st.session_state.get("k_directed", False), key="k_directed_manual")
+        keep_weights = st.checkbox("Use weights (do not binarize)", value=st.session_state.get("k_keep_weights", False), key="k_keep_weights_manual")
+    else:
+        directed = st.session_state.get("k_directed", False)
+        keep_weights = st.session_state.get("k_keep_weights", False)
+
     lazy_alpha = st.slider("Lazy random walk alpha (stability)", 0.0, 0.5, 0.0, 0.05, key="k_lazy_alpha")
 
     st.caption(
@@ -567,16 +599,25 @@ with st.expander("Graph settings", expanded=False):
     )
 
 settings = GraphSettings(
-    directed=directed,
-    keep_weights=keep_weights,
-    lazy_alpha=float(lazy_alpha),
-)
+    directed=directed, 
+    keep_weights=keep_weights, 
+    lazy_alpha=float(lazy_alpha)
+    )
 
 if not os.path.exists(file_path):
     st.error(f"Data file not found: {file_path}")
     st.stop()
 
 A_raw = load_mtx_as_sparse(file_path)
+
+is_dir, has_w = detect_graph_properties(A_raw)
+
+# Reset defaults when dataset changes (mtx_path is your dataset id)
+if st.session_state.get("_kemeny_dataset_path") != file_path:
+    st.session_state["_kemeny_dataset_path"] = file_path
+    st.session_state["k_directed"] = bool(is_dir)
+    st.session_state["k_keep_weights"] = bool(has_w)
+
 A0 = preprocess_adjacency(A_raw, settings=settings)
 
 # Baseline edges list
@@ -609,20 +650,42 @@ scope0, K0, n0 = kemeny_score(A0, directed=settings.directed, lazy_alpha=setting
 scope_now, K_now, n_now = kemeny_score(A_state, directed=settings.directed, lazy_alpha=settings.lazy_alpha)
 
 # Top metrics
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
 col1.metric("Nodes", str(G_state.number_of_nodes()))
 col2.metric("Edges (current)", str(G_state.number_of_edges()))
-col3.metric(conn_label, "Yes" if connected_now else "No")
-col4.metric("Scope used for K", f"{scope_now} (n={n_now})")
+col3.metric("Scope used for K", f"{scope_now} (n={n_now})")
+col4.metric(conn_label, "Yes" if connected_now else "No")
+
 
 kcol1, kcol2 = st.columns(2)
 with kcol1:
     st.metric("Baseline Kemeny constant K0", f"{K0:.6f}")
 with kcol2:
-    st.metric("Current Kemeny constant", f"{K_now:.6f}", delta=f"{(K_now - K0):+.6f}")
+    dK = K_now - K0
+    pct = (dK / K0 * 100.0) if K0 != 0 else 0.0
 
+    st.metric("Current Kemeny constant", f"{K_now:.6f}")
 
+    def _pill(value_str: str, positive: bool) -> str:
+        bg = "rgba(0, 200, 83, 0.18)" if positive else "rgba(255, 82, 82, 0.18)"
+        fg = "rgb(0, 200, 83)" if positive else "rgb(255, 82, 82)"
+        arrow = "↑" if positive else "↓"
+        return (
+            f'<span style="display:inline-flex; align-items:center; gap:6px;'
+            f' padding:2px 10px; border-radius:999px; background:{bg}; color:{fg};'
+            f' font-size:0.85rem; font-weight:600;">{arrow} {value_str}</span>'
+        )
 
+    
+    pill_html = (
+        '<div style="display:flex; gap:10px; align-items:center; margin-top:-6px;">'
+        + _pill(f"{dK:+.6f}", dK >= 0)
+        + _pill(f"{pct:+.2f}%", pct >= 0)
+        + "</div>"
+    )
+
+    st.markdown(pill_html, unsafe_allow_html=True)
+    
 # Graph panel — 3D (clickable edges)
 interactive_ok = render_graph_panel_3d_interactive(A0=A0, A_state=A_state, settings=settings)
 
