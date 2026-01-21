@@ -1,71 +1,71 @@
 import streamlit as st
 from ui_components import apply_tactical_theme
+from src.data_manager import get_active_network
 
-st.set_page_config(page_title="DSS | Welcome", layout="wide")
+st.set_page_config(page_title="Network Analysis DSS", layout="wide")
 apply_tactical_theme()
 
-col_title, col_status = st.columns([3, 1])
+# Try to get active dataset name for the header
+try:
+    _, metadata = get_active_network()
+    dataset_name = metadata.get('name', 'Unknown')
+except:
+    dataset_name = "Not Selected"
+
+# --- HEADER SECTION ---
+col_title, col_info = st.columns([3, 1])
 
 with col_title:
-    st.title("DECISION SUPPORT SYSTEM")
-    st.caption("CLANDESTINE NETWORK ANALYSIS & OPTIMIZATION")
+    st.title("Network Analysis Decision Support System")
+    st.caption("Structural Analysis & Optimization Framework for Clandestine Networks")
 
-with col_status:
-    # IMPORTANT: The HTML inside the string must NOT be indented, 
-    # otherwise Streamlit treats it as a code block.
+with col_info:
+    # A cleaner, more academic status box
     st.markdown(f"""
-<div style="border: 1px solid var(--color-wire); padding: 15px; background-color: var(--box-bg);">
-    <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color: var(--color-accent);">
-        SYSTEM_STATUS: ACTIVE
-    </p>
-    <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color: var(--color-text);">
-        OPERATOR: ADMIN
-    </p>
-</div>
-""", unsafe_allow_html=True)
-    
+    <div style="
+        border: 1px solid #30363d; 
+        padding: 15px; 
+        border-radius: 6px; 
+        background-color: #0d1117;
+        text-align: right;">
+        <div style="font-size: 12px; color: #8b949e; margin-bottom: 4px;">Active Dataset</div>
+        <div style="font-size: 16px; font-weight: 600; color: #58a6ff;">{dataset_name}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.divider()
 
-with st.container():
-    st.markdown("### Welcome, Analyst")
-    st.markdown(
-    "You are working with a decision support system for analyzing clandestine communication networks "
-    "using network science and mathematical optimization.\n\n"
-    "<span style='color:#8b949e; font-size:0.85em;'>"
-    "Scope: static snapshot of observed communications (62 members). "
-    "Results reflect structural patterns rather than intent or hierarchy."
-    "</span>",
-    unsafe_allow_html=True,
-    )
+# --- INTRODUCTION ---
+st.markdown("### Overview")
+st.markdown("""
+This platform is a Decision Support System (DSS) designed for the mathematical analysis of social networks. 
+It combines graph theory, linear algebra, and combinatorial optimization to provide quantitative insights into network structure, resilience, and partitioning.
+""")
 
+# --- MODULES OVERVIEW ---
+st.markdown("### System Capabilities")
 
+st.markdown("""
+#### Data Management
+**Import and switch datasets.** The system allows you to upload custom Matrix Market (.mtx) files and toggle between different network snapshots for comparative analysis.
 
-st.markdown("### What this system does")
+#### Centrality & Reachability
+**Identify key actors.** Analyze node importance using Degree, Eigenvector, and Katz centrality measures. Visualize geodesic paths to understand information flow range.
 
-st.markdown(
-    """
-    - **Identifies structurally important members** using multiple network perspectives  
-    - **Classifies members into functional roles** based on network position  
-    - **Detects groups and structural weak points** within the network  
-    - **Assesses network resilience** via simulated member removal  
-    - **Supports arrest planning** through structured analytical recommendations
-    """
+#### Functional Roles
+**Classify network positions.** Group nodes by structural equivalence (e.g., Leaders, Bridges, Peripheral members) rather than just their connectivity count.
+
+#### Resilience Analysis (Kemeny)
+**Measure structural robustness.** Evaluate how the network's communication efficiency (Mean First Passage Time) degrades when specific links are removed.
+
+#### Partitioning Strategy
+**Optimize network division.** Algorithms to split the network into disjoint groups (e.g., for arrest planning or departmental assignment) while minimizing the information leakage (regret) between groups.
+""")
+
+# --- FOOTER GUIDANCE ---
+st.markdown("---")
+st.info(
+    "Getting Started: "
+    "Navigate to the Data Manager page to select or upload a dataset. "
+    "Then, use the sidebar to access the analytical modules."
 )
-
-
-
-st.markdown(
-    "<div style='padding:12px; background-color: rgba(88,166,255,0.08); "
-    "border-left: 3px solid #58a6ff;'>"
-    "<strong>Analyst guidance</strong><br>"
-    "Use the system comparatively: explore patterns, contrast perspectives, "
-    "and treat disagreement as analytical signal."
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-
-
-
-
-
