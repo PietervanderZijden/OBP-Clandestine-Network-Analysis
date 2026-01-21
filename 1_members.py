@@ -10,8 +10,16 @@ from ui_components import apply_tactical_theme, COLOR_VOID, COLOR_WIRE, COLOR_ST
 from src.data_manager import get_active_network
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="DSS | Intelligence & Centrality", layout="wide")
+st.set_page_config(page_title="Network Analysis | Centrality", layout="wide")
 apply_tactical_theme()
+
+# --- HEADER & EXPLANATION ---
+st.title("Network Centrality & Reachability")
+st.caption("""
+    Exploratory analysis of network structure. 
+    **Reachability Analysis** examines the geodesic distance from a specific node to the rest of the network.
+    **Centrality Ranking** evaluates node importance using standard graph theory metrics.
+""")
 
 # --- 1. DATA LOADING ---
 G, metadata = get_active_network()
@@ -35,76 +43,84 @@ def calculate_all_centralities(_G, source_identifier):
     try:
         eigen = nx.eigenvector_centrality(_G, max_iter=1000)
     except:
+        # Fallback for unconnected graphs
         eigen = {n:0 for n in _G.nodes()} 
     katz = nx.katz_centrality(_G, alpha=0.1, beta=1.0)
     combined = {node: (degree[node] + eigen[node] + katz[node]) / 3 for node in _G.nodes()}
     
     return {
-        "Degree": degree,
-        "Eigenvector": eigen,
-        "Katz": katz,
-        "Hybrid (Combined)": combined
+        "Degree Centrality": degree,
+        "Eigenvector Centrality": eigen,
+        "Katz Centrality": katz,
+        "Composite Score (Avg)": combined
     }
 
 centrality_results = calculate_all_centralities(G, metadata['name'])
 
 # --- 3. SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.markdown("### CONTROL_MODE")
-    analysis_mode = st.radio("SELECT_MODE", ["Tactical Flow (Click)", "Importance Analysis (Top N)"])
+    st.markdown("### Analysis Configuration")
+    
+    analysis_mode = st.radio(
+        "Select Method", 
+        ["Reachability (Distance from Node)", "Centrality Ranking (Top N)"],
+        help="Choose between analyzing a single node's neighborhood or ranking all nodes by importance metrics."
+    )
     
     st.divider()
     
-    # Active Target Display
+    # Active Dataset Display
     st.markdown(f"""
     <div style="font-family:'Share Tech Mono'; font-size:12px; color:#8b949e; margin-bottom:10px;">
-        TARGET: <span style="color:#58a6ff">{metadata['name']}</span>
+        DATASET: <span style="color:#58a6ff">{metadata['name']}</span>
     </div>
     """, unsafe_allow_html=True)
 
     if not G.nodes():
-        st.error("NO DATA")
+        st.error("Dataset is empty.")
         st.stop()
         
     first_node = list(G.nodes())[0]
 
-    if analysis_mode == "Tactical Flow (Click)":
-        st.markdown("### FLOW_SETTINGS")
+    if analysis_mode == "Reachability (Distance from Node)":
+        st.markdown("### Parameters")
         if "target" not in st.session_state: st.session_state.target = first_node
         if st.session_state.target not in G.nodes():
              st.session_state.target = first_node
 
-        st.write(f"FOCUS: **NODE {st.session_state.target}**")
+        st.write(f"Selected Node ID: **{st.session_state.target}**")
         
         # --- DYNAMIC SLIDER LOGIC ---
-        # 1. Calculate how far the network actually goes from this node
-        # (This is fast for most intel networks)
         try:
             all_paths = nx.single_source_shortest_path_length(G, st.session_state.target)
             max_network_depth = max(all_paths.values()) if all_paths else 1
         except:
             max_network_depth = 8
             
-        # 2. Cap the slider at 8 (to keep colors simple), 
-        # but lower it if the network is small.
         slider_limit = min(max_network_depth, 8)
-        
-        # 3. Ensure min value (1) doesn't exceed max value
         if slider_limit < 1: slider_limit = 1
         
-        max_hops = st.slider("ANALYSIS RADIUS (HOPS)", 1, slider_limit, min(2, slider_limit))
+        max_hops = st.slider(
+            "Max Geodesic Distance", 
+            1, slider_limit, min(2, slider_limit),
+            help="Maximum number of edges (hops) from the source node to visualize."
+        )
         # ---------------------------
 
         target_node = st.session_state.target
     else:
-        st.markdown("### CENTRALITY_SETTINGS")
-        measure = st.selectbox("CENTRALITY_MEASURE", list(centrality_results.keys()))
-        n_top = st.slider("SELECT TOP N MEMBERS", 1, len(G.nodes()), 10)
+        st.markdown("### Parameters")
+        measure = st.selectbox(
+            "Metric", 
+            list(centrality_results.keys()),
+            help="Select the centrality algorithm to apply."
+        )
+        n_top = st.slider("Number of Top Nodes", 1, len(G.nodes()), 10)
         selected_scores = centrality_results[measure]
         top_n_members = sorted(selected_scores, key=selected_scores.get, reverse=True)[:n_top]
         target_node = None
 
-    if st.button("RESET SYSTEM"):
+    if st.button("Reset Selection"):
         st.session_state.target = first_node
         st.rerun()
 
@@ -112,18 +128,19 @@ with st.sidebar:
 nodes = []
 edges = []
 
-if analysis_mode == "Tactical Flow (Click)":
+if analysis_mode == "Reachability (Distance from Node)":
     distances = nx.single_source_shortest_path_length(G, target_node, cutoff=max_hops)
     
     def get_color(node):
         dist = distances.get(node)
-        if dist == 0: return "#FFFFFF" 
+        if dist == 0: return "#FFFFFF" # Source is white
+        # Standard heatmap for distance
         heatmap = {1: "#FF0000", 2: "#FF8C00", 3: "#FFD700", 4: "#00FF00"}
         return heatmap.get(dist, "#00BFFF") if dist is not None else COLOR_STEEL
 
     def get_label(node):
         dist = distances.get(node)
-        return f"{node} [L{dist}]" if dist is not None else str(node)
+        return f"{node} (d={dist})" if dist is not None else str(node)
 
 else:
     def get_color(node):
@@ -132,7 +149,7 @@ else:
     def get_label(node):
         if node in top_n_members:
             rank = top_n_members.index(node) + 1
-            return f"#{rank} (ID:{node})"
+            return f"#{rank} {node}"
         return str(node)
 
 # --- 5. BUILD GRAPH ELEMENTS ---
@@ -145,54 +162,59 @@ for node in G.nodes():
         color=get_color(node), 
         x=x_pos, 
         y=y_pos,
-        # TACTICAL LABEL STYLE
+        # Standard font style
         font={
             'color': 'white',  
             'background': '#090A0B', 
-            'face': 'monospace', 
+            'face': 'arial', 
             'size': 14,
             'strokeWidth': 0, 
             'align': 'center'
         }
     ))
 
+# --- EDGE GENERATION ---
 for u, v in G.edges():
-    active_edge = False
-    if analysis_mode == "Tactical Flow (Click)":
+    # Default settings (used for Centrality Ranking)
+    color = COLOR_WIRE
+    width = 1
+    opacity = 0.1
+
+    # Overrides for Reachability Mode
+    if analysis_mode == "Reachability (Distance from Node)":
         active_edge = u in distances and v in distances
-        color = get_color(v if distances.get(u, 9) < distances.get(v, 9) else u) if active_edge else COLOR_WIRE
-    else:
-        active_edge = u in top_n_members and v in top_n_members
-        color = COLOR_ALERT if active_edge else COLOR_WIRE
+        if active_edge:
+            # Color by the 'further' node's distance color logic
+            color = get_color(v if distances.get(u, 9) < distances.get(v, 9) else u)
+            width = 3
+            opacity = 1.0
 
     edges.append(Edge(
         source=str(u), target=str(v), color=color, 
-        width=3 if active_edge else 1,
-        opacity=1.0 if active_edge else 0.1,
+        width=width,
+        opacity=opacity,
         type="STRAIGHT"
     ))
 
-# --- 6. RENDER (THE DOUBLE TAP FIX) ---
+# --- 6. RENDER ---
 
-# 1. Height Trick (Keeps the visualizer awake)
+# Height adjustment to keep visualizer active on updates
 dynamic_height = 700 if st.session_state.target % 2 == 0 else 701
 
 config = Config(
-    width=1100, 
+    width="100%", 
     height=dynamic_height, 
     directed=False, 
     physics=False, 
     staticGraph=True
 )
 
-st.markdown(f"### SYSTEM_VIEW: {analysis_mode.upper()}")
+st.subheader(f"Visualization: {analysis_mode}")
 
-# 2. Draw Graph
+# Draw Graph
 return_value = agraph(nodes=nodes, edges=edges, config=config)
 
-# 3. Check for "Ghost Click" requirement
-# If we just updated the target in the previous run, we force ONE MORE run 
-# to ensure the visualizer catches up.
+# "Ghost Click" Logic (ensures graph updates correctly on first click)
 if "needs_second_kick" not in st.session_state:
     st.session_state.needs_second_kick = False
 
@@ -200,33 +222,25 @@ if st.session_state.needs_second_kick:
     st.session_state.needs_second_kick = False
     st.rerun()
 
-# 4. Main Click Handler
-if analysis_mode == "Tactical Flow (Click)" and return_value is not None:
+# Click Handler for Reachability Mode
+if analysis_mode == "Reachability (Distance from Node)" and return_value is not None:
     try:
         clicked_id = int(return_value)
-        
         # If the click is NEW
         if clicked_id != st.session_state.target:
-            
-            # A. Update the target
             st.session_state.target = clicked_id
-            
-            # B. Schedule the "Ghost Click" (The second automatic rerun)
             st.session_state.needs_second_kick = True
-            
-            # C. Trigger the first rerun
             st.rerun()
-            
     except ValueError:
         pass
 
 # --- 7. DATA TABLE ---
 st.divider()
 
-if analysis_mode == "Importance Analysis (Top N)":
-    st.markdown(f"### RANKING: {measure.upper()}")
+if analysis_mode == "Centrality Ranking (Top N)":
+    st.subheader(f"Ranking Table: {measure}")
     df_rank = pd.DataFrame([
-        {"RANK": i+1, "MEMBER_ID": m, "SCORE": round(selected_scores[m], 4)} 
+        {"Rank": i+1, "Node ID": m, "Score": round(selected_scores[m], 4)} 
         for i, m in enumerate(top_n_members)
     ])
     
@@ -235,16 +249,16 @@ if analysis_mode == "Importance Analysis (Top N)":
         use_container_width=True, 
         hide_index=True,
         column_config={
-            "RANK": st.column_config.NumberColumn("RANK", format="#%d"),
-            "SCORE": st.column_config.ProgressColumn("SCORE", min_value=0, max_value=max(selected_scores.values()))
+            "Rank": st.column_config.NumberColumn("Rank", format="#%d"),
+            "Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=max(selected_scores.values()))
         }
     )
 
 else:
-    st.markdown(f"### LAYER_RECON: SOURCE {target_node}")
-    df_flow = pd.DataFrame([{"NODE": n, "LAYER": d} for n, d in distances.items() if n != target_node])
+    st.subheader(f"Distance Distribution: Node {target_node}")
+    df_flow = pd.DataFrame([{"Node ID": n, "Distance": d} for n, d in distances.items() if n != target_node])
     st.dataframe(
-        df_flow.sort_values("LAYER"), 
+        df_flow.sort_values("Distance"), 
         use_container_width=True, 
         hide_index=True
     )
