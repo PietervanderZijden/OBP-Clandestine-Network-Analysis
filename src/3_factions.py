@@ -211,6 +211,26 @@ def algo_run_signature(algo: str, param_value: float | int | None = None) -> str
     return f"{algo}"
 
 
+def pct_nodes_changed_between_memberships(
+    membership_a: dict[int, int],
+    membership_b: dict[int, int],
+    nodes_list,
+) -> float:
+    """
+    Returns % of nodes whose community id differs between two memberships.
+    Note: this assumes community ids are comparable across the two runs.
+    If label switching is possible, align membership_b to membership_a first.
+    """
+    common = [
+        int(n) for n in nodes_list if int(n) in membership_a and int(n) in membership_b
+    ]
+    if not common:
+        return 0.0
+
+    changed = sum(1 for n in common if int(membership_a[n]) != int(membership_b[n]))
+    return 100.0 * changed / len(common)
+
+
 def compute_run_summary(G: nx.Graph, communities):
     Q = float(compute_modularity(G, communities))
     sizes = sorted((len(c) for c in communities), reverse=True)
@@ -774,71 +794,182 @@ with tab_explore:
                 st.write(f"Node {nid} is in community **{membership.get(nid, 'N/A')}**")
 
             st.dataframe({"node_id": nodes})
+# with tab_compare:
+#     with st.expander("How to read these results", expanded=True):
+#         st.markdown("""
+#         **Modularity (Q)** Measures how strongly the network is divided into factions.  A high modularity score means the network has dense connections within the communities and sparse connections between them.
+
+#         **NMI (Normalized Mutual Information)** Measures how similar two faction results are.
+#         • 1.0 = identical
+#         • 0.0 = completely different
+
+#         **ARI (Adjusted Rand Index)** Measures agreement between two results while correcting for chance.
+#         • 1.0 = identical
+#         • ~0 = random similarity
+
+#         High NMI & ARI means two algorithms see the network in the same way.
+#         """)
+
+#     st.subheader("Algorithm comparison")
+
+#     if len(st.session_state.compare_store) == 0:
+#         st.info(
+#             "No algorithms selected yet. Run an algorithm in **Explore** and click **Add to comparison**."
+#         )
+#     else:
+#         c1, c2 = st.columns([1, 3])
+#         with c1:
+#             if st.button("🧹 Clear selection", use_container_width=True):
+#                 st.session_state.compare_store = {}
+#                 st.rerun()
+#         with c2:
+#             st.caption(
+#                 "Compare modularity and agreement (NMI/ARI) across selected partitions."
+#             )
+
+#         rows = []
+#         for key, item in st.session_state.compare_store.items():
+#             s = item["summary"]
+#             rows.append(
+#                 {
+#                     "Run": item["signature"],
+#                     "Algorithm": item["algo"],
+#                     "Modularity Q": round(s["modularity_Q"], 3),
+#                     "# Factions": s["n_communities"],
+#                     "Largest faction": s["largest_community"],
+#                 }
+#             )
+
+#         rows = sorted(rows, key=lambda r: r["Modularity Q"], reverse=True)
+
+#         st.markdown("### Summary table")
+#         st.dataframe(rows, use_container_width=True, hide_index=True)
+
+#         st.markdown("### Agreement between partitions (NMI / ARI)")
+
+#         nodes = list(G.nodes())
+#         keys = list(st.session_state.compare_store.keys())
+#         memberships = {k: st.session_state.compare_store[k]["membership"] for k in keys}
+
+#         n = len(keys)
+#         nmi_mat = [[0.0] * n for _ in range(n)]
+#         ari_mat = [[0.0] * n for _ in range(n)]
+
+#         def membership_to_label_list(memb: dict[int, int], nodes_list):
+#             return [int(memb.get(int(node), -1)) for node in nodes_list]
+
+#         label_lists = {k: membership_to_label_list(memberships[k], nodes) for k in keys}
+
+#         for i in range(n):
+#             for j in range(n):
+#                 if i == j:
+#                     nmi_mat[i][j] = 1.0
+#                     ari_mat[i][j] = 1.0
+#                 elif j > i:
+#                     nmi = normalized_mutual_info_score(
+#                         label_lists[keys[i]], label_lists[keys[j]]
+#                     )
+#                     ari = adjusted_rand_score(
+#                         label_lists[keys[i]], label_lists[keys[j]]
+#                     )
+#                     nmi_mat[i][j] = nmi_mat[j][i] = float(nmi)
+#                     ari_mat[i][j] = ari_mat[j][i] = float(ari)
+#         avg_nmi = {keys[i]: sum(nmi_mat[i]) / len(nmi_mat[i]) for i in range(n)}
+
+#         max_val = max(avg_nmi.values())
+
+#         best_agreement = [k for k, v in avg_nmi.items() if abs(v - max_val) < 1e-6]
+
+#         if len(best_agreement) == 1:
+#             st.success(f"Most consistent (Agreement): **{best_agreement[0]}**")
+#         else:
+#             st.success(
+#                 "Most consistent (Agreement): "
+#                 + ", ".join(f"**{b}**" for b in best_agreement)
+#                 + " (tie)"
+#             )
+
+#         st.markdown(
+#             """
+#         **NMI matrix**
+#         <span title="Measures how much information two partitions share. 1 = identical, 0 = unrelated.">ℹ️</span>
+#         """,
+#             unsafe_allow_html=True,
+#         )
+
+#         st.dataframe(
+#             [
+#                 {"": keys[i], **{keys[j]: round(nmi_mat[i][j], 3) for j in range(n)}}
+#                 for i in range(n)
+#             ],
+#             use_container_width=True,
+#             hide_index=True,
+#         )
+
+#         st.markdown(
+#             """
+#             **ARI matrix**
+#             <span title="Measures exact agreement between node pairs, corrected for chance. 1 = identical.">ℹ️</span>
+#             """,
+#             unsafe_allow_html=True,
+#         )
+
+#         st.dataframe(
+#             [
+#                 {"": keys[i], **{keys[j]: round(ari_mat[i][j], 3) for j in range(n)}}
+#                 for i in range(n)
+#             ],
+#             use_container_width=True,
+#             hide_index=True,
+#         )
+
+#         st.markdown("### Manage selection")
+#         remove_key = st.selectbox("Remove a run", ["(none)"] + keys)
+#         if remove_key != "(none)":
+#             if st.button("Remove selected run"):
+#                 st.session_state.compare_store.pop(remove_key, None)
+#                 st.rerun()
 with tab_compare:
-    with st.expander("How to read these results", expanded=True):
-        st.markdown("""
-        **Modularity (Q)** Measures how strongly the network is divided into factions.  A high modularity score means the network has dense connections within the communities and sparse connections between them.
+    st.subheader("Compare results")
 
-        **NMI (Normalized Mutual Information)** Measures how similar two faction results are.  
-        • 1.0 = identical  
-        • 0.0 = completely different  
+    st.caption(
+        "This page helps choose a faction result that is both **meaningful** (high modularity) "
+        "and **reliable** (consistent with other runs)."
+    )
 
-        **ARI (Adjusted Rand Index)** Measures agreement between two results while correcting for chance.  
-        • 1.0 = identical  
-        • ~0 = random similarity  
+    with st.expander("How to read these metrics", expanded=False):
+        st.markdown(
+            """
+**Modularity (Q)**  
+How cleanly the network splits into factions.  
+Higher = stronger separation (dense links inside factions, fewer links between factions).
 
-        High NMI & ARI means two algorithms see the network in the same way.
-        """)
+**NMI (Normalized Mutual Information)**  
+How similar two results are (1 = identical, 0 = unrelated).
 
-    st.subheader("Algorithm comparison")
+**ARI (Adjusted Rand Index)**  
+Agreement of node-pair grouping, corrected for chance (1 = identical, ~0 = random).
+            """
+        )
 
     if len(st.session_state.compare_store) == 0:
         st.info(
-            "No algorithms selected yet. Run an algorithm in **Explore** and click **Add to comparison**."
+            "No runs selected yet. Go to **Explore**, run an algorithm, then click **Add to comparison**."
         )
     else:
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            if st.button("🧹 Clear selection", use_container_width=True):
-                st.session_state.compare_store = {}
-                st.rerun()
-        with c2:
-            st.caption(
-                "Compare modularity and agreement (NMI/ARI) across selected partitions."
-            )
-
-        rows = []
-        for key, item in st.session_state.compare_store.items():
-            s = item["summary"]
-            rows.append(
-                {
-                    "Run": item["signature"],
-                    "Algorithm": item["algo"],
-                    "Modularity Q": round(s["modularity_Q"], 3),
-                    "# Factions": s["n_communities"],
-                    "Largest faction": s["largest_community"],
-                }
-            )
-
-        rows = sorted(rows, key=lambda r: r["Modularity Q"], reverse=True)
-
-        st.markdown("### Summary table")
-        st.dataframe(rows, use_container_width=True, hide_index=True)
-
-        st.markdown("### Agreement between partitions (NMI / ARI)")
-
+        # --- Data prep ---
         nodes = list(G.nodes())
         keys = list(st.session_state.compare_store.keys())
         memberships = {k: st.session_state.compare_store[k]["membership"] for k in keys}
-
-        n = len(keys)
-        nmi_mat = [[0.0] * n for _ in range(n)]
-        ari_mat = [[0.0] * n for _ in range(n)]
 
         def membership_to_label_list(memb: dict[int, int], nodes_list):
             return [int(memb.get(int(node), -1)) for node in nodes_list]
 
         label_lists = {k: membership_to_label_list(memberships[k], nodes) for k in keys}
+
+        n = len(keys)
+        nmi_mat = [[0.0] * n for _ in range(n)]
+        ari_mat = [[0.0] * n for _ in range(n)]
 
         for i in range(n):
             for j in range(n):
@@ -854,59 +985,145 @@ with tab_compare:
                     )
                     nmi_mat[i][j] = nmi_mat[j][i] = float(nmi)
                     ari_mat[i][j] = ari_mat[j][i] = float(ari)
-        avg_nmi = {keys[i]: sum(nmi_mat[i]) / len(nmi_mat[i]) for i in range(n)}
 
-        max_val = max(avg_nmi.values())
+        avg_nmi = {keys[i]: sum(nmi_mat[i]) / n for i in range(n)}
+        avg_ari = {keys[i]: sum(ari_mat[i]) / n for i in range(n)}
 
-        best_agreement = [k for k, v in avg_nmi.items() if abs(v - max_val) < 1e-6]
-
-        if len(best_agreement) == 1:
-            st.success(f"Most consistent (Agreement): **{best_agreement[0]}**")
-        else:
-            st.success(
-                "Most consistent (Agreement): "
-                + ", ".join(f"**{b}**" for b in best_agreement)
-                + " (tie)"
+        # Build summary rows (add consensus)
+        rows = []
+        for k in keys:
+            item = st.session_state.compare_store[k]
+            s = item["summary"]
+            rows.append(
+                {
+                    "Run": item["signature"],
+                    "Algorithm": item["algo"],
+                    "Modularity Q": round(s["modularity_Q"], 3),
+                    "# Factions": int(s["n_communities"]),
+                    "Largest faction": int(s["largest_community"]),
+                    "Consensus (avg NMI)": round(avg_nmi[k], 3),
+                    "Consensus (avg ARI)": round(avg_ari[k], 3),
+                }
             )
 
-        st.markdown(
-            """
-        **NMI matrix**
-        <span title="Measures how much information two partitions share. 1 = identical, 0 = unrelated.">ℹ️</span>
-        """,
-            unsafe_allow_html=True,
+        # Simple interpretability label
+        def interpretability_label(num_factions: int) -> str:
+            if num_factions <= 4:
+                return "High"
+            if num_factions <= 8:
+                return "Medium"
+            return "Low"
+
+        for r in rows:
+            r["Interpretability"] = interpretability_label(r["# Factions"])
+
+        # Sort: modularity first, then agreement
+        rows = sorted(
+            rows,
+            key=lambda r: (r["Modularity Q"], r["Consensus (avg ARI)"]),
+            reverse=True,
         )
 
-        st.dataframe(
-            [
-                {"": keys[i], **{keys[j]: round(nmi_mat[i][j], 3) for j in range(n)}}
-                for i in range(n)
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.markdown(
-            """
-            **ARI matrix**
-            <span title="Measures exact agreement between node pairs, corrected for chance. 1 = identical.">ℹ️</span>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.dataframe(
-            [
-                {"": keys[i], **{keys[j]: round(ari_mat[i][j], 3) for j in range(n)}}
-                for i in range(n)
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.markdown("### Manage selection")
-        remove_key = st.selectbox("Remove a run", ["(none)"] + keys)
-        if remove_key != "(none)":
-            if st.button("Remove selected run"):
-                st.session_state.compare_store.pop(remove_key, None)
+        # --- Top actions ---
+        top_left, top_right = st.columns([1, 2])
+        with top_left:
+            if st.button("🧹 Clear all selected runs", use_container_width=True):
+                st.session_state.compare_store = {}
                 st.rerun()
+        with top_right:
+            st.caption(f"Selected runs: **{len(rows)}**")
 
+        # --- Recommendation card ---
+        best = rows[0]["Run"]
+        best_row = rows[0]
+        st.success(
+            f"Recommended: **{best}**  \n"
+            f"Why: high separation (**Q={best_row['Modularity Q']}**) and strong consistency "
+            f"(**avg ARI={best_row['Consensus (avg ARI)']}**). "
+            f"Interpretability: **{best_row['Interpretability']}**."
+        )
+
+        # --- Summary table ---
+        st.markdown("### Overview")
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # --- Pairwise comparison (much more intuitive than matrices) ---
+        st.markdown("### Do two runs agree?")
+        if len(keys) == 1:
+            st.info("Add at least **two** runs to compare agreement.")
+        else:
+            cA, cB = st.columns(2)
+            with cA:
+                run_a = st.selectbox("Run A", keys, index=0)
+            with cB:
+                run_b = st.selectbox("Run B", keys, index=1)
+
+            i, j = keys.index(run_a), keys.index(run_b)
+            nmi = float(nmi_mat[i][j])
+            ari = float(ari_mat[i][j])
+            memb_a = st.session_state.compare_store[run_a]["membership"]
+            memb_b_raw = st.session_state.compare_store[run_b]["membership"]
+
+            memb_b = align_membership_to_reference(memb_a, memb_b_raw)
+
+            pct_changed = pct_nodes_changed_between_memberships(memb_a, memb_b, nodes)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("NMI", f"{nmi:.3f}")
+            m2.metric("ARI", f"{ari:.3f}")
+            m3.metric("% Nodes that changed faction", f"{pct_changed:.1f}%")
+
+            # Optional: a human label based on pct
+            if pct_changed <= 5:
+                label = "Very stable"
+            elif pct_changed <= 15:
+                label = "Mostly stable"
+            elif pct_changed <= 30:
+                label = "Mixed"
+            else:
+                label = "Unstable"
+
+            m4.metric("Quick read", label)
+
+        # --- Manage selection (clean) ---
+        st.markdown("### Manage selection")
+        rm_left, rm_right = st.columns([2, 1])
+        with rm_left:
+            remove_key = st.selectbox("Remove one run", ["(none)"] + keys)
+        with rm_right:
+            if remove_key != "(none)":
+                if st.button("Remove", use_container_width=True):
+                    st.session_state.compare_store.pop(remove_key, None)
+                    st.rerun()
+
+        # --- Advanced: matrices ---
+        with st.expander("Advanced: show full NMI / ARI matrices", expanded=False):
+            st.markdown("**NMI matrix** (1 = identical, 0 = unrelated)")
+            st.dataframe(
+                [
+                    {
+                        "": keys[i],
+                        **{keys[j]: round(nmi_mat[i][j], 3) for j in range(n)},
+                    }
+                    for i in range(n)
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("**ARI matrix** (1 = identical, ~0 = random)")
+            st.dataframe(
+                [
+                    {
+                        "": keys[i],
+                        **{keys[j]: round(ari_mat[i][j], 3) for j in range(n)},
+                    }
+                    for i in range(n)
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
