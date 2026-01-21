@@ -1,53 +1,15 @@
 import streamlit as st
-import pandas as pd
-import scipy.io
-import os
 from ui_components import apply_tactical_theme
+# Import the logic functions we just wrote
+from src.data_manager import load_repository_data, parse_mtx
 
 # --- Page Config ---
 st.set_page_config(page_title="DSS | Data Ingest", layout="wide")
 apply_tactical_theme()
 
-# --- CONSTANTS ---
-DATA_FOLDER = "data"
-
-# --- 1. INITIALIZE & AUTO-LOAD ---
-if 'data_registry' not in st.session_state:
-    st.session_state['data_registry'] = {}
-
-def load_repo_datasets():
-    """Scans the 'data/' folder and loads .mtx files automatically."""
-    if not os.path.exists(DATA_FOLDER):
-        return
-
-    # Get all .mtx files in the folder
-    repo_files = [f for f in os.listdir(DATA_FOLDER) if f.endswith('.mtx')]
-    
-    for filename in repo_files:
-        if filename not in st.session_state['data_registry']:
-            file_path = os.path.join(DATA_FOLDER, filename)
-            try:
-                # Parse directly from disk
-                sparse_matrix = scipy.io.mmread(file_path)
-                coo = sparse_matrix.tocoo()
-                df_edges = pd.DataFrame({
-                    'Source': coo.row,
-                    'Target': coo.col,
-                    'Weight': coo.data if coo.data.size > 0 else 1 
-                })
-                
-                # Add to registry with REPO tag
-                st.session_state['data_registry'][filename] = {
-                    "df": df_edges,
-                    "shape": sparse_matrix.shape,
-                    "name": filename,
-                    "type": "REPO"
-                }
-            except Exception as e:
-                print(f"Error auto-loading {filename}: {e}")
-
-# Run the auto-loader
-load_repo_datasets()
+# --- 1. RUN LOGIC ---
+# This one line handles scanning the folder and updating the registry
+load_repository_data("data")
 
 # --- Header Section ---
 col_title, col_status = st.columns([3, 1])
@@ -75,15 +37,12 @@ st.divider()
 col_upload, col_select = st.columns([1, 1])
 
 # ==========================================
-# LEFT COLUMN: BATCH UPLOADER
+# LEFT: UPLOADER (Cleaned up)
 # ==========================================
 with col_upload:
     with st.container(border=True):
         st.subheader("Target Upload")
-        st.markdown(
-            "<span style='color:#8B949E; font-size:14px;'>System accepts verified Matrix Market (.mtx) coordinate formats only.</span>", 
-            unsafe_allow_html=True
-        )
+        st.caption("System accepts verified Matrix Market (.mtx) formats only.")
         
         uploaded_files = st.file_uploader(
             "Select Intel Files", 
@@ -93,35 +52,23 @@ with col_upload:
         )
 
         if uploaded_files:
-            new_files_count = 0
-            for uploaded_file in uploaded_files:
-                if uploaded_file.name not in st.session_state['data_registry']:
-                    try:
-                        sparse_matrix = scipy.io.mmread(uploaded_file)
-                        coo = sparse_matrix.tocoo()
-                        df_edges = pd.DataFrame({
-                            'Source': coo.row,
-                            'Target': coo.col,
-                            'Weight': coo.data if coo.data.size > 0 else 1 
-                        })
-
-                        st.session_state['data_registry'][uploaded_file.name] = {
-                            "df": df_edges,
-                            "shape": sparse_matrix.shape,
-                            "name": uploaded_file.name,
-                            "type": "UPLOAD"
-                        }
-                        new_files_count += 1
-
-                    except Exception as e:
-                        st.error(f"ERROR LOADING {uploaded_file.name}")
-                        st.warning(f"Trace: {e}")
+            new_count = 0
+            for file in uploaded_files:
+                # Use logic from network_manager
+                if file.name not in st.session_state['data_registry']:
+                    data_pack = parse_mtx(file, file.name, "UPLOAD")
+                    
+                    if data_pack:
+                        st.session_state['data_registry'][file.name] = data_pack
+                        new_count += 1
+                    else:
+                        st.error(f"Failed to parse {file.name}")
             
-            if new_files_count > 0:
+            if new_count > 0:
                 st.rerun()
 
 # ==========================================
-# RIGHT COLUMN: SELECTOR & ACTIVE STATUS
+# RIGHT: SELECTOR (Cleaned up)
 # ==========================================
 with col_select:
     with st.container(border=True):
@@ -129,34 +76,31 @@ with col_select:
         
         if not st.session_state['data_registry']:
             st.warning("NO DATA AVAILABLE")
-            st.caption("Add .mtx files to /data folder or upload manually.")
         else:
             options = list(st.session_state['data_registry'].keys())
             
+            # Smart Indexing
             index = 0
             if 'data_source' in st.session_state and st.session_state['data_source'] in options:
                 index = options.index(st.session_state['data_source'])
 
-            selected_name = st.selectbox(
-                "Select Dataset for Analysis", 
-                options,
-                index=index
-            )
+            selected_name = st.selectbox("Select Dataset", options, index=index)
 
             if selected_name:
+                # Activate the selection
                 data_pack = st.session_state['data_registry'][selected_name]
-                
                 st.session_state['network_data'] = data_pack['df']
                 st.session_state['network_shape'] = data_pack['shape']
                 st.session_state['data_source'] = data_pack['name']
 
                 st.divider()
                 
-                # Visual Indicator of Source (Repo vs Upload)
+                # Source Badge
                 src_type = data_pack.get('type', 'UNKNOWN')
-                st.markdown(f"<p style='font-family: \"Share Tech Mono\", monospace; color:#8b949e; font-size:12px;'>SOURCE_ORIGIN: <span style='color:#58a6ff;'>[{src_type}]</span></p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='font-family: \"Share Tech Mono\", monospace; color:#8b949e; font-size:12px;'>SOURCE_ORIGIN: <span style='color:var(--color-accent);'>[{src_type}]</span></p>", unsafe_allow_html=True)
                 st.success(f"TARGET ACTIVE: {selected_name}")
                 
+                # Stats
                 m1, m2 = st.columns(2)
                 m1.metric("Nodes", data_pack['shape'][0])
                 m2.metric("Connections", len(data_pack['df']))
@@ -166,29 +110,8 @@ with col_select:
                     if 'network_data' in st.session_state:
                         del st.session_state['network_data']
                     st.rerun()
-
+    
+    # Help Expander
     with st.expander("DATA STRUCTURE SPECIFICATION"):
-        st.markdown("""
-        **REQUIRED FORMAT: Matrix Market (.mtx)**
-        `%%MatrixMarket matrix coordinate pattern symmetric`
-        
-        **Structure:**
-        1. Headers
-        2. Dimensions (`Rows Cols Entries`)
-        3. Payload (`Source Target`)
-        """)
-        
-        sample_mtx = """%%MatrixMarket matrix coordinate pattern symmetric
-% Sample Clandestine Network
-5 5 4
-1 2
-2 3
-3 4
-4 1
-"""
-        st.download_button(
-            label="DOWNLOAD TEMPLATE",
-            data=sample_mtx,
-            file_name="reference_network.mtx",
-            mime="text/plain"
-        )
+        st.markdown("**REQUIRED FORMAT: Matrix Market (.mtx)**")
+        st.download_button("DOWNLOAD TEMPLATE", data="%%MatrixMarket matrix coordinate pattern symmetric\n5 5 4\n1 2\n", file_name="template.mtx")
