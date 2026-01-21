@@ -136,7 +136,7 @@ def communities_split_summary(communities, assignment: dict[int, int]) -> pd.Dat
 # APP
 st.title("Arrest Plan")
 
-with st.expander("📘 Quick Guide", expanded=True):
+with st.expander("📘 Quick guide", expanded=True):
     st.markdown(
         "**Step 1** — Choose **Community detection** (how the network is grouped into factions).\n\n"
         "**Step 2** — Adjust the settings that appear (some options only show for certain methods).\n\n"

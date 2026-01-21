@@ -21,7 +21,7 @@ st.caption("""
     **Centrality Ranking** evaluates node importance using standard graph theory metrics.
 """)
 
-with st.expander("📘 Quick Guide", expanded=True):
+with st.expander("📘 Quick guide", expanded=True):
     st.markdown(
         """
         **Objective:** Classify network members into structural roles (Core, Intermediate, Peripheral) using comparative graph-theoretic algorithms.
