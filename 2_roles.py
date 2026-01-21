@@ -264,8 +264,8 @@ def agraph_network(G: nx.Graph, df_display: pd.DataFrame, layout_map: dict):
                                 (df_display["embeddedness_score"].max() - df_display["embeddedness_score"].min() + 1e-9)),
                 color=ROLE_COLORS.get(role, "#95a5a6"),
                 title=f"Member {n}\nRole: {role}\nConfidence: {conf:.0%}",
-                x=float(pos[n][0]) * 1000,
-                y=float(pos[n][1]) * 1000,
+                x=float(x) * 1000,
+                y=float(y) * 1000,
                 font={"color": "white", "size": 16, "vadjust": -38},
             )
         )
