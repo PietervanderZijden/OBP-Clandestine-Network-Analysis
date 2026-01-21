@@ -6,9 +6,11 @@ import networkx as nx
 import plotly.graph_objects as go
 from streamlit_agraph import agraph, Node, Edge, Config
 
-
 from ui_components import apply_tactical_theme, COLOR_VOID, COLOR_WIRE, COLOR_STEEL, COLOR_ALERT
 from roles_logic import run_all_role_methods
+
+# --- NEW IMPORT ---
+from src.data_manager import get_active_network
 
 st.set_page_config(layout="wide")
 apply_tactical_theme()
@@ -27,17 +29,15 @@ with st.expander("📘Quick guide", expanded=True):
         """
     )
 
+# --- CHANGED: DATA LOADING SECTION ---
+# We use the manager to get the G object directly
+G, metadata = get_active_network()
 
+# The roles_logic.py script expects a SciPy Sparse Matrix (A),
+# so we simply convert the NetworkX graph 'G' into that format.
+A = nx.to_scipy_sparse_array(G, format='csr')
 
-
-
-@st.cache_data
-def load_adjacency():
-  A = scipy.io.mmread("data/clandestine_network_example.mtx").tocsr()
-  return A
-
-A = load_adjacency()
-G = nx.from_scipy_sparse_array(A)
+# -------------------------------------
 
 def get_direct_contacts(G: nx.Graph, node_id: int) -> list[int]:
     """Sorted list of direct neighbors (immediate contacts) for a node."""
@@ -63,6 +63,10 @@ df_overlap = df_overlap.set_index("node", drop=False)
 # Method selector
 with st.sidebar:
     st.subheader("Roles settings")
+    
+    # Optional: Display active target name
+    st.caption(f"Target: {metadata['name']}")
+    
     method_ui = st.selectbox(
         "Role method",
         ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
@@ -240,6 +244,9 @@ def agraph_network(G: nx.Graph, df_display: pd.DataFrame):
     # Build nodes
     nodes = []
     for n in G.nodes():
+        # Ensure node exists in display dataframe (handle disconnects)
+        if n not in df_display.index: continue
+        
         role = df_display.loc[n, "role_label"]
         conf = float(df_display.loc[n, "confidence"])
         emb = float(df_display.loc[n, "embeddedness_score"])
@@ -310,12 +317,23 @@ with col2:
   st.subheader("Member inspection")
 
   # If user clicked a node in the graph, use it; otherwise fallback to selectbox
-  default_node = int(selected) if selected is not None else int(df_display["node"].iloc[0])
+  # Ensure we have a valid default even if the graph selection is empty
+  default_node = int(df_display["node"].iloc[0])
+  if selected:
+      try:
+          default_node = int(selected)
+      except:
+          pass
+
+  # Filter list to valid nodes
+  valid_nodes = df_display["node"].tolist()
+  if default_node not in valid_nodes:
+      default_node = valid_nodes[0]
 
   node_id = st.selectbox(
       "Select a member",
-      df_display["node"].tolist(),
-      index=df_display["node"].tolist().index(default_node)
+      valid_nodes,
+      index=valid_nodes.index(default_node)
   )
 
   row = df_display.loc[node_id]
@@ -405,20 +423,3 @@ with col2:
 
         st.write(f"Contact similarity (how typical this member's contacts are): **{similarity_level}** "
         )
-
-    
-
-
-
-   
-
-
-
-  
-
-  
-
-
-                                    
-               
-              
