@@ -573,7 +573,7 @@ st.caption("Stateful multi-edge removal with Kemeny recomputation. Supports dire
 
 file_path = "data/clandestine_network_example.mtx"
 
-with st.expander("Graph settings", expanded=False):
+with st.expander("↓ Graph settings", expanded=False):
     # status line (neutral)
     detected_msg = (
         f"Detected: {'directed' if st.session_state.get('k_directed', False) else 'undirected'}, "
@@ -633,6 +633,10 @@ if "selected_edges" not in st.session_state:
 
 # Build current adjacency/graph from removals
 A_state = apply_edge_removals(A0, st.session_state.removed_set, directed=settings.directed)
+
+comp_nodes, full_used, comp_label = main_component_nodes(A_state, directed=settings.directed)
+comp_set = set(comp_nodes.tolist())
+
 G_state = build_nx_graph(A_state, directed=settings.directed)
 
 # Connectivity status
@@ -832,7 +836,7 @@ else:
 # --- Fallback removal UI (insurance) ---
 # --- Fallback removal UI (insurance) ---
 with st.expander(
-    "Fallback: edge table removal (only needed if edge clicks don't work)",
+    "↓ Edge table removal",
     expanded=(not interactive_ok),
 ):
     if interactive_ok:
@@ -846,29 +850,58 @@ with st.expander(
 
     if enable_fallback:
         st.caption(
-            "This table is a backup control. If your environment can't capture Plotly clicks, use this and your demo still works."
+            "Backup control: toggle Removed ✅ here if your environment can't capture Plotly clicks."
         )
 
-        edges_all = pd.DataFrame(edges0, columns=["u", "v"])
+        # --- Component membership for CURRENT state ---
+        comp_nodes, full_used, comp_label = main_component_nodes(A_state, directed=settings.directed)
+        comp_set = set(comp_nodes.tolist())
+
+        # Helper: canonical edge (prevents (u,v) vs (v,u) mismatch for undirected)
+        def canon(e: tuple[int, int]) -> tuple[int, int]:
+            return normalize_edge(int(e[0]), int(e[1]), directed=settings.directed)
+
+        # Canonicalize session sets
+        st.session_state.removed_set = {canon(e) for e in set(st.session_state.get("removed_set", set()))}
+        st.session_state.removed_edges = [canon(e) for e in list(st.session_state.get("removed_edges", []))]
+
+        # Build table
+        edges_all = pd.DataFrame([canon(e) for e in edges0], columns=["u", "v"])
         edges_all["u_show"] = edges_all["u"] + 1
         edges_all["v_show"] = edges_all["v"] + 1
-        edges_all["Removed"] = [(e in st.session_state.removed_set) for e in edges0]
+
+        edges_all["status"] = [
+            ("MAIN" if (u in comp_set and v in comp_set) else "OUTSIDE")
+            for u, v in zip(edges_all["u"].tolist(), edges_all["v"].tolist())
+        ]
+        edges_all["Removed"] = [
+            canon((u, v)) in st.session_state.removed_set
+            for u, v in zip(edges_all["u"].tolist(), edges_all["v"].tolist())
+        ]
+
+        st.caption(f"Edge status is relative to the component used for Kemeny: **{comp_label}**.")
 
         edited = st.data_editor(
-            edges_all[["u_show", "v_show", "Removed"]],
+            edges_all[["u_show", "v_show", "status", "Removed"]],
             width="stretch",
             hide_index=True,
             key="edge_editor_fallback",
             column_config={
                 "u_show": st.column_config.NumberColumn("u", disabled=True),
                 "v_show": st.column_config.NumberColumn("v", disabled=True),
+                "status": st.column_config.TextColumn("Component", disabled=True),
                 "Removed": st.column_config.CheckboxColumn("Removed ✅"),
             },
             height=350,
         )
 
+        # Map edited Removed flags back to canonical edges
         old_set = set(st.session_state.removed_set)
-        new_set = {edges0[i] for i, flag in enumerate(edited["Removed"].tolist()) if bool(flag)}
+        flags = edited["Removed"].tolist()
+
+        # edges_all is already aligned row-by-row with the editor
+        table_edges = [canon((int(u), int(v))) for u, v in zip(edges_all["u"].tolist(), edges_all["v"].tolist())]
+        new_set = {e for e, flag in zip(table_edges, flags) if bool(flag)}
 
         added = new_set - old_set
         removed = old_set - new_set
@@ -876,14 +909,22 @@ with st.expander(
         if added or removed:
             st.session_state.removed_set = new_set
 
-            for e in edges0:
-                if e in added and e not in st.session_state.removed_edges:
-                    st.session_state.removed_edges.append(e)
+            # Maintain ordered list removed_edges (preserve existing order)
+            removed_edges_order = list(st.session_state.removed_edges)
+            for e in table_edges:
+                if e in added and e not in removed_edges_order:
+                    removed_edges_order.append(e)
             if removed:
-                st.session_state.removed_edges = [e for e in st.session_state.removed_edges if e not in removed]
+                removed_edges_order = [e for e in removed_edges_order if e not in removed]
+
+            st.session_state.removed_edges = removed_edges_order
+
+            # Also ensure selected edges can't include removed ones (avoids stale UI)
+            sel = set(st.session_state.get("selected_edges", set()))
+            sel = {canon(e) for e in sel} - new_set
+            st.session_state.selected_edges = sel
 
             st.rerun()
-
 
 
 st.subheader("Next-step recommendations (Top 5)")
@@ -892,7 +933,7 @@ st.subheader("Next-step recommendations (Top 5)")
 if "objective" not in st.session_state:
     st.session_state.objective = "Disrupt communication (maximize K)"
 
-with st.expander("Next-step recommendations (Top 5)", expanded=st.session_state.get("compute_reco", False)):
+with st.expander("↓ Next-step recommendations (Top 5)", expanded=st.session_state.get("compute_reco", False)):
     compute_reco = st.checkbox(
         "Compute recommendations (slow; runs many Kemeny computations)",
         key="compute_reco",
