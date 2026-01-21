@@ -5,13 +5,17 @@ from collections import defaultdict
 import igraph as ig
 import leidenalg as la
 import networkx as nx
+import numpy as np
 import streamlit as st
 from infomap import Infomap
 from networkx.algorithms.community import girvan_newman, modularity
-from pyvis.network import Network
 from scipy.io import mmread
+from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import SpectralClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from streamlit_agraph import Config, Edge, Node, agraph
+
+from ui_components import COLOR_STEEL, COLOR_WIRE
 
 FILE_PATH = "data/clandestine_network_example.mtx"
 HEIGH_PX = 650
@@ -26,6 +30,31 @@ def load_graph(file_path: str) -> nx.Graph:
     G = nx.from_scipy_sparse_array(A)
     G.remove_edges_from(nx.selfloop_edges(G))
     return G
+
+
+@st.cache_data
+def get_fixed_layout(file_path):
+    G = load_graph(file_path)
+    return nx.spring_layout(G, seed=42)
+
+
+def theme_style():
+    base = st.get_option("theme.base")
+    if base == "light":
+        return {
+            "bg": "#ffffff",
+            "font": "#111827",
+            "edge": "#111827",
+            "edge_opacity": 0.18,
+            "neutral_node": "#6b7280",
+        }
+    return {
+        "bg": "#000000",
+        "font": "#ffffff",
+        "edge": "#ffffff",
+        "edge_opacity": 0.35,
+        "neutral_node": "#9ca3af",
+    }
 
 
 def run_louvain(G: nx.Graph, resolution: float):
@@ -53,6 +82,45 @@ def run_leiden(G: nx.Graph, resolution: float):
         communities.append({int(idx_to_node[i]) for i in block})
 
     return communities
+
+
+def align_membership_to_reference(
+    membership_ref: dict[int, int],
+    membership_new: dict[int, int],
+) -> dict[int, int]:
+    """
+    Remap community ids in membership_new so they best match membership_ref.
+    Works even if #communities differ.
+    """
+    nodes = sorted(set(membership_ref) & set(membership_new))
+
+    ref_labels = [membership_ref[n] for n in nodes]
+    new_labels = [membership_new[n] for n in nodes]
+
+    ref_ids = sorted(set(ref_labels))
+    new_ids = sorted(set(new_labels))
+
+    ref_to_i = {c: i for i, c in enumerate(ref_ids)}
+    new_to_j = {c: j for j, c in enumerate(new_ids)}
+
+    M = np.zeros((len(ref_ids), len(new_ids)), dtype=int)
+    for r, c in zip(ref_labels, new_labels):
+        M[ref_to_i[r], new_to_j[c]] += 1
+
+    row_ind, col_ind = linear_sum_assignment(-M)
+
+    new_to_ref = {}
+    for i, j in zip(row_ind, col_ind):
+        new_to_ref[new_ids[j]] = ref_ids[i]
+
+    next_id = (max(ref_ids) + 1) if ref_ids else 0
+    for c in new_ids:
+        if c not in new_to_ref:
+            new_to_ref[c] = next_id
+            next_id += 1
+
+    aligned = {n: new_to_ref[membership_new[n]] for n in membership_new}
+    return aligned
 
 
 def run_spectral(G: nx.Graph, k: int, assign_labels: str = "kmeans"):
@@ -239,127 +307,118 @@ def colour_palette():
         "#FF9DA7",
         "#9C755F",
         "#BAB0AC",
-        "#1F77B4",
-        "#FF7F0E",
-        "#2CA02C",
-        "#D62728",
-        "#9467BD",
-        "#8C564B",
-        "#E377C2",
-        "#7F7F7F",
-        "#BCBD22",
-        "#17BECF",
     ]
 
 
-def build_pyvis_html(
+def build_agraph_factions(
     G: nx.Graph,
     membership: dict[int, int] | None,
+    layout_map: dict[int, tuple[float, float]],
     height_px: int = HEIGH_PX,
-    show_labels: bool = False,
     changed_nodes: dict[int, tuple[int, int]] | None = None,
 ):
-    net = Network(
-        height=f"{height_px}px",
-        width="100%",
-        bgcolor="#000000",
-        font_color="#ffffff",
-        directed=False,
-    )
-
-    net.barnes_hut()
-    net.set_options("""
-    {
-      "layout": {
-        "improvedLayout": true
-      },
-      "physics": {
-        "enabled": false,
-        "stabilization": {
-          "enabled": true,
-          "iterations": 200
-        }
-      }
-    }
-    """)
-    net.from_nx(G)
-
-    colours = colour_palette()
     changed_nodes = changed_nodes or {}
+    colours = colour_palette()
 
-    for node in net.nodes:
-        nid = int(node["id"])
+    style = theme_style()
+    nodes = []
+    edges = []
+
+    for u in G.nodes():
+        x, y = layout_map[int(u)]
+        nid = int(u)
 
         if membership is None:
-            node["color"] = "#DDDDDD"
-            node["title"] = f"Node {nid}"
+            node_color = COLOR_STEEL
         else:
-            cid = membership.get(nid, 0)
-            node["color"] = colours[cid % len(colours)]
+            cid = int(membership.get(nid, 0))
+            node_color = colours[cid % len(colours)]
+        title_txt = f"Node {nid}"
+        if membership is not None:
+            cid = int(membership.get(nid, 0))
+            title_txt += f"\nCommunity: {cid}"
 
-            if nid in changed_nodes:
-                old_c, new_c = changed_nodes[nid]
-                node["title"] = (
-                    f"Node {nid}"
-                    f"<br><b>CHANGED CLUSTER</b>"
-                    f"<br>old: {old_c}"
-                    f"<br>new: {new_c}"
-                )
-                # Make it visually obvious
-                node["shape"] = "diamond"
-                node["size"] = 28
-                node["borderWidth"] = 5
-                node["borderWidthSelected"] = 5
-                node["color"] = {
-                    "background": colours[new_c % len(colours)],
-                    "border": "#ffffff",
-                    "highlight": {
-                        "background": colours[new_c % len(colours)],
-                        "border": "#ff4d4d",
-                    },
+        if nid in changed_nodes:
+            old_c, new_c = changed_nodes[nid]
+            title_txt += (
+                f"\nChanged cluster after disturbance\nPrevious: {old_c}\nNew: {new_c}"
+            )
+        node_kwargs = dict(
+            id=str(nid),
+            label=str(nid),
+            title=title_txt,
+            x=float(x),
+            y=float(y),
+            size=20,
+            color=node_color,
+            font={"color": "white", "size": 16, "vadjust": -38},
+        )
+
+        if nid in changed_nodes:
+            node_kwargs.update(
+                {
+                    "shape": "diamond",
+                    "size": 26,
+                    "borderWidth": 4,
                 }
-            else:
-                node["title"] = f"Node {nid}<br>Community {cid}"
+            )
 
-        node["label"] = str(nid)
-        node["font"] = {"color": "#ffffff", "size": 18}
-        node["shadow"] = False
+        nodes.append(Node(**node_kwargs))
 
-    for e in net.edges:
-        e["color"] = "#AAAAAA"
-        e["width"] = 1.5
+    for u, v in G.edges():
+        edges.append(
+            Edge(
+                source=str(int(u)),
+                target=str(int(v)),
+                color=COLOR_WIRE,
+                width=1,
+                opacity=style["edge_opacity"],
+                type="STRAIGHT",
+            )
+        )
 
-    html = net.generate_html()
+    config = Config(
+        width="100%",
+        height=height_px,
+        directed=False,
+        physics=False,
+        staticGraph=True,
+        nodeHighlightBehavior=True,
+        backgroundColor=style["bg"],
+        visjs_config={"interaction": {"hover": True}},
+    )
 
-    html = html.replace(
-        "</head>",
+    return agraph(nodes=nodes, edges=edges, config=config)
+
+
+def render_changed_legend():
+    st.markdown(
         """
-        <style>
-          html, body {
-            background: #000 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          * {
-            border: none !important;
-            outline: none !important;
-            box-shadow: none !important;
-          }
-          #mynetwork, #network, .vis-network {
-            background: #000 !important;
-          }
-          canvas {
-            background: #000 !important;
-          }
-        </style>
-        </head>
+        <div style="
+            display:inline-flex;
+            align-items:center;
+            gap:10px;
+            padding:10px 12px;
+            border-radius:8px;
+            border:1px solid rgba(128,128,128,0.35);
+            background: rgba(0,0,0,0.35);
+            color: inherit;
+            font-size: 14px;
+            margin-top: 8px;
+        ">
+            <div style="
+                width:12px;
+                height:12px;
+                transform: rotate(45deg);
+                border: 2px solid #ff4d4d;
+                background: #ffffff;
+                display:inline-block;
+            "></div>
+            <div>Node changed cluster after disturbance</div>
+        </div>
         """,
+        unsafe_allow_html=True,
     )
-
-    html = html.replace(
-        "<body>", "<body style='margin:0; padding:0; background:#000;'>"
-    )
-    return html
 
 
 if "show_tutorial" not in st.session_state:
@@ -378,6 +437,7 @@ if "active_view" not in st.session_state:
     st.session_state.active_view = "Explore"
 
 st.title("Faction Selection")
+
 tab_explore, tab_compare = st.tabs(["Explore", "Compare"])
 with tab_explore:
     if st.session_state.show_tutorial:
@@ -405,7 +465,10 @@ with tab_explore:
             )
 
     G = load_graph(FILE_PATH)
-
+    fixed_pos = get_fixed_layout(FILE_PATH)
+    layout_map = {
+        int(u): (fixed_pos[u][0] * 1000, fixed_pos[u][1] * 1000) for u in G.nodes()
+    }
     st.sidebar.header("Controls")
     st.sidebar.markdown(
         """
@@ -485,8 +548,9 @@ with tab_explore:
     run_disturbance = False
     show_perturbed_graph = False
     if st.session_state.get("communities") is not None:
-        st.sidebar.divider()
-
+        st.sidebar.markdown(
+            "<hr style='margin:8px 0; border-color:#333;'>", unsafe_allow_html=True
+        )
         run_disturbance = st.sidebar.button(
             "Run disturbance test (remove 5%)",
             help="Removes 5% of links and re-evaluates faction stability.",
@@ -518,12 +582,9 @@ with tab_explore:
 
     if st.session_state.communities is None:
         st.info("Pick an algorithm and click **Run**.")
-        html = build_pyvis_html(
-            G,
-            membership=None,
-            height_px=HEIGH_PX,
+        build_agraph_factions(
+            G, membership=None, layout_map=layout_map, height_px=HEIGH_PX
         )
-        st.components.v1.html(html, height=HEIGH_PX, scrolling=False)
     else:
         communities = st.session_state.communities
         membership = st.session_state.membership
@@ -538,12 +599,9 @@ with tab_explore:
         c3.metric("Largest faction", f"{max(len(c) for c in communities)}")
 
         st.subheader(f"{st.session_state.algo_used}")
-        html = build_pyvis_html(
-            G,
-            membership=membership,
-            height_px=HEIGH_PX,
+        build_agraph_factions(
+            G, membership=membership, layout_map=layout_map, height_px=HEIGH_PX
         )
-        st.components.v1.html(html, height=HEIGH_PX, scrolling=False)
         st.markdown('<div id="disturbance-results"></div>', unsafe_allow_html=True)
 
         sig = algo_run_signature(
@@ -587,6 +645,9 @@ with tab_explore:
             st.rerun()
 
         st.subheader("Robustness check")
+        st.caption(
+            "_Hint_ : Click on **Show perturbated graph** to see which nodes changed clusters"
+        )
         if st.session_state.get("scroll_to_disturbance", False):
             st.components.v1.html(
                 """
@@ -626,9 +687,13 @@ with tab_explore:
         else:
             results = st.session_state.disturbance_results
             membership_before = st.session_state.membership
-            membership_after = communities_to_membership(
+            membership_after_raw = communities_to_membership(
                 results["communities_perturbed"]
             )
+            membership_after = align_membership_to_reference(
+                membership_before, membership_after_raw
+            )
+
             changed_nodes = compute_changed_nodes(membership_before, membership_after)
             st.subheader("Stability summary")
 
@@ -663,14 +728,16 @@ with tab_explore:
                 membership_p = communities_to_membership(
                     results["communities_perturbed"]
                 )
-                html_p = build_pyvis_html(
+                build_agraph_factions(
                     results["G_perturbed"],
-                    membership_after,
+                    membership=membership_after,
+                    layout_map=layout_map,
                     height_px=HEIGH_PX,
                     changed_nodes=changed_nodes,
                 )
 
-                st.components.v1.html(html_p, height=HEIGH_PX, scrolling=False)
+                if len(changed_nodes) > 0:
+                    render_changed_legend()
 
         with st.expander("↓ Community details", expanded=False):
             st.write(f"Number of communities: **{len(communities)}**")
@@ -690,7 +757,7 @@ with tab_compare:
     with st.expander("How to read these results", expanded=True):
         st.markdown("""
         **Modularity (Q)**  
-        Measures how strongly the network is divided into factions. Higher is better.
+        Measures how strongly the network is divided into factions.  A high modularity score means the network has dense connections within the communities and sparse connections between them.
 
         **NMI (Normalized Mutual Information)**  
         Measures how similar two faction results are.  
@@ -722,7 +789,6 @@ with tab_compare:
                 "Compare modularity and agreement (NMI/ARI) across selected partitions."
             )
 
-        # Build a nice table (list of dicts -> st.dataframe)
         rows = []
         for key, item in st.session_state.compare_store.items():
             s = item["summary"]
@@ -736,13 +802,11 @@ with tab_compare:
                 }
             )
 
-        # Sort by modularity
         rows = sorted(rows, key=lambda r: r["Modularity Q"], reverse=True)
 
         st.markdown("### Summary table")
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
-        # Pairwise NMI/ARI matrices
         st.markdown("### Agreement between partitions (NMI / ARI)")
 
         nodes = list(G.nodes())
