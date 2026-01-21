@@ -92,6 +92,15 @@ with st.sidebar:
             "Confidence shows how much the other methods agree."
         )
     )
+    if method_ui:
+        if method_ui == "Influence (flow)":
+            st.caption("Measures influence via multi-step information flow through the network.")
+        elif method_ui == "Core distance":
+            st.caption("Measures how far each member is from the highly connected core.")
+        elif method_ui == "Importance type":
+            st.caption("Identifies hubs, bridges, and peripheral members using centrality signals.")
+        elif method_ui == "Similar contacts":
+            st.caption("Groups members by similarity of their contact patterns.")
 
 
 if method_ui is None:
@@ -105,17 +114,6 @@ METHOD_KEY = {
     "Similar contacts": "Overlap"
 }[method_ui]
 
-st.caption(f"Selected role method: **{method_ui}**")
-
-
-if METHOD_KEY == "Flow":
-    st.markdown("**What this method measures:** Influence via multi-step information flow through the network.")
-elif METHOD_KEY == "Distance":
-    st.markdown("**What this method measures:** How many steps away a member is from the high-degree core.")
-elif METHOD_KEY == "Centrality":
-    st.markdown("**What this method measures:** Whether a member behaves like a hub, bridge, or peripheral based on centrality signals.")
-else:
-    st.markdown("**What this method measures:** Similarity of contact patterns (structural equivalence / overlap).")
 
 
 
@@ -393,8 +391,6 @@ with col2:
   st.caption("These are relative network indicators (use for comparison, not absolute interpretation).")
 
   with st.expander("Evidence (advanced)"):
-    st.write(f"Selected method: **{method_ui}**")
-    
     if METHOD_KEY == "Flow":
     
       emb = float(row["embeddedness_score"])
