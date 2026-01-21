@@ -4,9 +4,13 @@ import numpy as np
 import scipy.io
 import networkx as nx
 import plotly.graph_objects as go
+from streamlit_agraph import agraph, Node, Edge, Config
 
 from ui_components import apply_tactical_theme, COLOR_VOID, COLOR_WIRE, COLOR_STEEL, COLOR_ALERT
 from roles_logic import run_all_role_methods
+
+# --- NEW IMPORT ---
+from src.data_manager import get_active_network
 
 st.set_page_config(layout="wide")
 apply_tactical_theme()
@@ -25,17 +29,23 @@ with st.expander("📘Quick guide", expanded=True):
         """
     )
 
-
-
-
+# --- CHANGED: DATA LOADING SECTION ---
+# We use the manager to get the G object directly
+G, metadata = get_active_network()
 
 @st.cache_data
-def load_adjacency():
-  A = scipy.io.mmread("data/clandestine_network_example.mtx").tocsr()
-  return A
+def compute_layout(_graph, source_name):
+    pos = nx.spring_layout(_graph, seed=42)
+    return {int(u): (pos[u][0] * 1000, pos[u][1] * 1000) for u in _graph.nodes()}
 
-A = load_adjacency()
-G = nx.from_scipy_sparse_array(A)
+layout_map = compute_layout(G, metadata["name"])
+
+
+# The roles_logic.py script expects a SciPy Sparse Matrix (A),
+# so we simply convert the NetworkX graph 'G' into that format.
+A = nx.to_scipy_sparse_array(G, format='csr')
+
+# -------------------------------------
 
 def get_direct_contacts(G: nx.Graph, node_id: int) -> list[int]:
     """Sorted list of direct neighbors (immediate contacts) for a node."""
@@ -61,6 +71,7 @@ df_overlap = df_overlap.set_index("node", drop=False)
 # Method selector
 with st.sidebar:
     st.subheader("Roles settings")
+    
     method_ui = st.selectbox(
         "Role method",
         ["Influence (flow)", "Core distance", "Importance type", "Similar contacts"],
@@ -232,60 +243,66 @@ def why_we_think_so(role: str) -> list[str]:
 
 
 
-def plot_network(G, df_display):
-  pos = nx.spring_layout(G, seed=42)
+def agraph_network(G: nx.Graph, df_display: pd.DataFrame, layout_map: dict):
+    # Build nodes
+    nodes = []
+    for n in G.nodes():
+        if n not in df_display.index: 
+            continue
+        
+        role = df_display.loc[n, "role_label"]
+        conf = float(df_display.loc[n, "confidence"])
+        emb = float(df_display.loc[n, "embeddedness_score"])
 
-  edge_x, edge_y = [], []
-  for u, v in G.edges():
-    x0, y0 = pos[u]
-    x1, y1 = pos[v]
-    edge_x += [x0, x1, None]
-    edge_y += [y0, y1, None]
+        x, y = layout_map[int(n)]
+        
+        nodes.append(
+            Node(
+                id=str(n),
+                label=str(n),
+                size=12 + 18 * ((emb - df_display["embeddedness_score"].min()) /
+                                (df_display["embeddedness_score"].max() - df_display["embeddedness_score"].min() + 1e-9)),
+                color=ROLE_COLORS.get(role, "#95a5a6"),
+                title=f"Member {n}\nRole: {role}\nConfidence: {conf:.0%}",
+                x=float(x) * 1000,
+                y=float(y) * 1000,
+                font={"color": "white", "size": 16, "vadjust": -38},
+            )
+        )
 
-  fig = go.Figure()
-  fig.add_trace(go.Scatter(
-    x=edge_x, y=edge_y, mode="lines", hoverinfo="none", line=dict(width=0.6, color="rgba(180,180,180,0.35)")))
-  
-  node_x, node_y, node_color, hover = [], [], [], []
-  sizes = []
+            
 
-  emb = df_display["embeddedness_score"].to_numpy()
-  emb_min, emb_max = float(np.min(emb)), float(np.max(emb))
-  denom = (emb_max - emb_min) if emb_max > emb_min else 1.0
+    # Build edges
+    edges = []
+    for u, v in G.edges():
+        edges.append(
+            Edge(
+                source=str(int(u)),
+                target=str(int(v)),
+                color=COLOR_WIRE,
+                width=1,
+                opacity=0.35,
+                type="STRAIGHT",
+            )
+        )
 
 
-  for n in G.nodes():
-    x, y = pos[n]
-    node_x.append(x); node_y.append(y)
-
-    role = df_display.loc[n,"role_label"]
-    conf = df_display.loc[n, "confidence"]
-    node_color.append(ROLE_COLORS.get(role, "#95a5a6"))
-
-    s = 12 + 18 * ((df_display.loc[n,"embeddedness_score"] - emb_min) / denom)
-    sizes.append(s)
-
-    hover.append(
-      f"Member {n}"
-      f"<br>Role: {role}"
-      f"<br>Confidence: {conf:.0%}"
-
+    
+    config = Config(
+        width="100%",
+        height=600,
+        directed=False,
+        physics=False,
+        staticGraph=True,
+        nodeHighlightBehavior=True,
+        backgroundColor="#000000",  # or use their theme_style() logic
+        visjs_config={"interaction": {"hover": True}},
     )
 
-  fig.add_trace(go.Scatter(
-    x=node_x, y=node_y,
-    mode="markers",
-    marker=dict(size=sizes, color=node_color, line=dict(width=1,color="rgba(20,20,20,0.6)")),
-    hovertext=hover,
-    hoverinfo="text"
-  ))
 
-  fig.update_layout(
-    margin=dict(l=0,r=0,t=0,b=0),
-    showlegend=False,
-    height=600
-  )
-  return fig
+    
+    return agraph(nodes=nodes, edges=edges, config=config)
+
 
 
 st.caption(
@@ -312,11 +329,32 @@ with col1:
     "Legend: Core-like = red, Intermediate = orange, Peripheral = blue, Extreme peripheral = gray."
   )
 
-  st.plotly_chart(plot_network(G, df_display), use_container_width=True)
+  selected = agraph_network(G, df_display, layout_map)
+
+
 with col2:
   st.subheader("Member inspection")
 
-  node_id = st.selectbox("Select a member", df_display["node"].tolist(), index=0)
+  # If user clicked a node in the graph, use it; otherwise fallback to selectbox
+  # Ensure we have a valid default even if the graph selection is empty
+  default_node = int(df_display["node"].iloc[0])
+  if selected:
+      try:
+          default_node = int(selected)
+      except:
+          pass
+
+  # Filter list to valid nodes
+  valid_nodes = df_display["node"].tolist()
+  if default_node not in valid_nodes:
+      default_node = valid_nodes[0]
+
+  node_id = st.selectbox(
+      "Select a member",
+      valid_nodes,
+      index=valid_nodes.index(default_node)
+  )
+
   row = df_display.loc[node_id]
   contacts = get_direct_contacts(G, int(node_id))
 
@@ -404,20 +442,3 @@ with col2:
 
         st.write(f"Contact similarity (how typical this member's contacts are): **{similarity_level}** "
         )
-
-    
-
-
-
-   
-
-
-
-  
-
-  
-
-
-                                    
-               
-              

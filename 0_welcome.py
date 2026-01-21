@@ -11,13 +11,19 @@ with col_title:
     st.caption("CLANDESTINE NETWORK ANALYSIS & OPTIMIZATION")
 
 with col_status:
+    # IMPORTANT: The HTML inside the string must NOT be indented, 
+    # otherwise Streamlit treats it as a code block.
     st.markdown(f"""
-        <div style="border: 1px solid #30363D; padding: 15px; background-color: rgba(17, 20, 24, 0.8);">
-            <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color:#58a6ff;">SYSTEM_STATUS: ACTIVE</p>
-            <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color:#8b949e;">OPERATOR: ADMIN</p>
-        </div>
-    """, unsafe_allow_html=True)
-
+<div style="border: 1px solid var(--color-wire); padding: 15px; background-color: var(--box-bg);">
+    <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color: var(--color-accent);">
+        SYSTEM_STATUS: ACTIVE
+    </p>
+    <p style="margin:0; font-family: 'Share Tech Mono', monospace; font-size:12px; color: var(--color-text);">
+        OPERATOR: ADMIN
+    </p>
+</div>
+""", unsafe_allow_html=True)
+    
 st.divider()
 
 with st.container():
@@ -38,11 +44,11 @@ st.markdown("### What this system does")
 
 st.markdown(
     """
-    - 🧭 **Identifies structurally important members** using multiple network perspectives  
-    - 🧩 **Classifies members into functional roles** based on network position  
-    - 🕸️ **Detects groups and structural weak points** within the network  
-    - 🧪 **Assesses network resilience** via simulated member removal  
-    - 🎯 **Supports arrest planning** through structured analytical recommendations
+    - **Identifies structurally important members** using multiple network perspectives  
+    - **Classifies members into functional roles** based on network position  
+    - **Detects groups and structural weak points** within the network  
+    - **Assesses network resilience** via simulated member removal  
+    - **Supports arrest planning** through structured analytical recommendations
     """
 )
 
