@@ -453,11 +453,11 @@ if "disturbance_results" not in st.session_state:
     st.session_state.disturbance_results = None
 if "compare_store" not in st.session_state:
     st.session_state.compare_store = {}
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Explore"
 
 st.title("Faction Selection")
 
+G, metadata = get_active_network()
+G.remove_edges_from(nx.selfloop_edges(G))
 tab_explore, tab_compare = st.tabs(["Explore", "Compare"])
 with tab_explore:
     if st.session_state.show_tutorial:
@@ -479,22 +479,14 @@ with tab_explore:
                 """
             )
 
-    # --- CHANGED: Dynamic Data Loading ---
-    G, metadata = get_active_network()
-    # Clean up self loops just in case
-    G.remove_edges_from(nx.selfloop_edges(G))
-
-    # Calculate layout dynamically
     @st.cache_data
     def compute_layout(_graph, source_name):
         pos = nx.spring_layout(_graph, seed=42)
         return {int(u): (pos[u][0] * 1000, pos[u][1] * 1000) for u in _graph.nodes()}
 
     layout_map = compute_layout(G, metadata["name"])
-    # -------------------------------------
 
     st.sidebar.header("Controls")
-    # Display Active Target Name
     st.sidebar.caption(f"Target: {metadata['name']}")
 
     st.sidebar.markdown(
@@ -580,7 +572,7 @@ with tab_explore:
             "<hr style='margin:8px 0; border-color:#333;'>", unsafe_allow_html=True
         )
         run_disturbance = st.sidebar.button(
-            "Run disturbance test",
+            "Run robustness test",
             help="Removes 5% of links and re-evaluates faction stability.",
         )
         if run_disturbance:
@@ -625,7 +617,7 @@ with tab_explore:
         membership = st.session_state.membership
         Q_before = float(modularity(G, communities))
         st.success(
-            "Factions detected. Click on **Add to comparison** to compare the output or on **Run disturbance test** to test the robustness of the Algorithm."
+            "Factions detected. Click on **Add to comparison** to compare the output or on **Run robustness test** to test the robustness of the Algorithm."
         )
         st.subheader("Results")
         c1, c2, c3 = st.columns(3)
@@ -675,12 +667,11 @@ with tab_explore:
             st.toast(f"Added: {sig}", icon="✅")
 
         if go_compare:
-            st.session_state.active_view = "Compare"
-            st.rerun()
+            st.toast("Open the **Compare** tab to view selected runs →", icon="➡️")
 
         st.subheader("Robustness check")
         st.caption(
-            "_Hint_ : Click on **Show perturbated graph** to see which nodes changed clusters"
+            "_Hint_ : Click on **Show perturbed graph** to see which nodes changed clusters"
         )
         if st.session_state.get("scroll_to_disturbance", False):
             st.components.v1.html(
@@ -719,7 +710,7 @@ with tab_explore:
             st.rerun()
         if st.session_state.disturbance_results is None:
             st.info(
-                "Click **Run disturbance test (remove 5%)** in the sidebar to evaluate stability."
+                "Click **Run robustness test (remove 5%)** in the sidebar to evaluate stability."
             )
         else:
             results = st.session_state.disturbance_results
@@ -998,10 +989,12 @@ Agreement of node-pair grouping, corrected for chance (1 = identical, ~0 = rando
                 {
                     "Run": item["signature"],
                     "Algorithm": item["algo"],
+                    "Q_raw": float(s["modularity_Q"]),
                     "Modularity Q": round(s["modularity_Q"], 3),
                     "# Factions": int(s["n_communities"]),
                     "Largest faction": int(s["largest_community"]),
                     "Consensus (avg NMI)": round(avg_nmi[k], 3),
+                    "ARI_raw": float(avg_ari[k]),
                     "Consensus (avg ARI)": round(avg_ari[k], 3),
                 }
             )
@@ -1018,11 +1011,7 @@ Agreement of node-pair grouping, corrected for chance (1 = identical, ~0 = rando
             r["Interpretability"] = interpretability_label(r["# Factions"])
 
         # Sort: modularity first, then agreement
-        rows = sorted(
-            rows,
-            key=lambda r: (r["Modularity Q"], r["Consensus (avg ARI)"]),
-            reverse=True,
-        )
+        rows = sorted(rows, key=lambda r: (r["Q_raw"], r["ARI_raw"]), reverse=True)
 
         # --- Top actions ---
         top_left, top_right = st.columns([1, 2])
@@ -1036,12 +1025,30 @@ Agreement of node-pair grouping, corrected for chance (1 = identical, ~0 = rando
         # --- Recommendation card ---
         best = rows[0]["Run"]
         best_row = rows[0]
-        st.success(
-            f"Recommended: **{best}**  \n"
-            f"Why: high separation (**Q={best_row['Modularity Q']}**) and strong consistency "
-            f"(**avg ARI={best_row['Consensus (avg ARI)']}**). "
-            f"Interpretability: **{best_row['Interpretability']}**."
-        )
+        EPS_Q = 0.01
+        EPS_ARI = 0.01
+        best_row = rows[0]
+
+        tied = [
+            r
+            for r in rows
+            if abs(r["Q_raw"] - best_row["Q_raw"]) <= EPS_Q
+            and abs(r["ARI_raw"] - best_row["ARI_raw"]) <= EPS_ARI
+        ]
+
+        if len(tied) > 1:
+            st.info(
+                "Top recommendation is a tie: "
+                + ", ".join(f"**{r['Run']}**" for r in tied)
+                + ". Use interpretability (# factions) to choose."
+            )
+        else:
+            st.success(
+                f"Recommended: **{best}**  \n"
+                f"Why: high separation (**Q={best_row['Modularity Q']}**) and strong consistency "
+                f"(**avg ARI={best_row['Consensus (avg ARI)']}**). "
+                f"Interpretability: **{best_row['Interpretability']}**."
+            )
 
         # --- Summary table ---
         st.markdown("### Overview")
@@ -1075,7 +1082,10 @@ Agreement of node-pair grouping, corrected for chance (1 = identical, ~0 = rando
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("NMI", f"{nmi:.3f}")
             m2.metric("ARI", f"{ari:.3f}")
+            common = [int(x) for x in nodes if int(x) in memb_a and int(x) in memb_b]
+            n_changed = int(round(pct_changed / 100 * len(common)))
             m3.metric("% Nodes that changed faction", f"{pct_changed:.1f}%")
+            m3.caption(f"≈ {n_changed} nodes out of {len(common)}")
 
             # Optional: a human label based on pct
             if pct_changed <= 5:
