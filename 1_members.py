@@ -13,18 +13,11 @@ from src.data_manager import get_active_network
 st.set_page_config(page_title="DSS | Intelligence & Centrality", layout="wide")
 apply_tactical_theme()
 
-# --- 1. DATA LOADING (Fixed Caching) ---
-# A. Get the Active Graph (Fast, no cache needed)
+# --- 1. DATA LOADING ---
 G, metadata = get_active_network()
 
-# B. Calculate Layout (Cached)
-# FIX: Added underscore to '_graph' so Streamlit ignores it during hashing
 @st.cache_data
 def calculate_layout(_graph, source_identifier):
-    """
-    Calculates layout. Refreshes only when source_identifier changes.
-    The underscore in '_graph' tells Streamlit not to hash the graph object.
-    """
     pos = nx.spring_layout(_graph, seed=42, k=1.2)
     fixed_positions = {
         node: (coords[0] * 1000, coords[1] * 1000) 
@@ -32,24 +25,18 @@ def calculate_layout(_graph, source_identifier):
     }
     return fixed_positions
 
-# Execute Layout
 layout_map = calculate_layout(G, metadata['name'])
 
-
 # --- 2. CENTRALITY CALCULATIONS ---
-# FIX: Ensure '_G' has the underscore here too
 @st.cache_data
 def calculate_all_centralities(_G, source_identifier):
     if _G.number_of_nodes() == 0: return {}
-    
     degree = nx.degree_centrality(_G)
     try:
         eigen = nx.eigenvector_centrality(_G, max_iter=1000)
     except:
         eigen = {n:0 for n in _G.nodes()} 
-        
     katz = nx.katz_centrality(_G, alpha=0.1, beta=1.0)
-    
     combined = {node: (degree[node] + eigen[node] + katz[node]) / 3 for node in _G.nodes()}
     
     return {
@@ -84,8 +71,6 @@ with st.sidebar:
     if analysis_mode == "Tactical Flow (Click)":
         st.markdown("### FLOW_SETTINGS")
         if "target" not in st.session_state: st.session_state.target = first_node
-        
-        # Validate target exists in new dataset
         if st.session_state.target not in G.nodes():
              st.session_state.target = first_node
 
@@ -131,13 +116,27 @@ else:
             return f"#{rank} (ID:{node})"
         return str(node)
 
-# --- 5. BUILD GRAPH ELEMENTS ---
+# --- 5. BUILD GRAPH ELEMENTS (The Fix) ---
 for node in G.nodes():
     x_pos, y_pos = layout_map.get(node, (0,0))
     nodes.append(Node(
-        id=str(node), label=get_label(node), size=25, 
-        color=get_color(node), x=x_pos, y=y_pos,
-        font={'color': 'white', 'face': 'monospace', 'size': 14}
+        id=str(node), 
+        label=get_label(node), 
+        size=25, 
+        color=get_color(node), 
+        x=x_pos, 
+        y=y_pos,
+        # FIX: "Tactical Badge" Style
+        # We enforce White Text on a Dark Background.
+        # This is readable in BOTH Light Mode and Dark Mode.
+        font={
+            'color': 'white',  
+            'background': '#090A0B', # Matches our COLOR_VOID
+            'face': 'monospace', 
+            'size': 14,
+            'strokeWidth': 0, # Removes outlines for a cleaner look
+            'align': 'center'
+        }
     ))
 
 for u, v in G.edges():
@@ -153,7 +152,7 @@ for u, v in G.edges():
         source=str(u), target=str(v), color=color, 
         width=3 if active_edge else 1,
         opacity=1.0 if active_edge else 0.1,
-        type="STRAIGHT" # Clean lines
+        type="STRAIGHT"
     ))
 
 # --- 6. RENDER ---
