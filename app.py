@@ -65,12 +65,12 @@ if st.session_state.logged_in:
     pg = st.navigation(
         [
             st.Page("0_welcome.py", title="Welcome", default=True),
+            st.Page("src/6_data_import.py", title="Import Data"),
             st.Page("1_members.py", title="Members"),
             st.Page("2_roles.py", title="Roles"),
             st.Page("src/3_factions.py", title="Factions"),
             st.Page("4_kemeny.py", title="Kemeny Constant"),
             st.Page("src/5_arrest_plan.py", title="Arrest Plan"),
-            st.Page("src/6_data_import.py", title="Import Intelligence"),
             st.Page(logout_screen, title="Log out"),
         ]
     )
