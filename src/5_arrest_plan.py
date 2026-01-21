@@ -75,7 +75,8 @@ def build_agraph_by_dept(
                 label=str(u),
                 x=x,
                 y=y,
-                size=20,
+                size=30,
+                shape="circle",
                 color=COLOR_A if dept == 0 else COLOR_B,
                 font={"color": "white", "size": 16},
             )
