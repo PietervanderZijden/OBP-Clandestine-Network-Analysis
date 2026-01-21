@@ -712,6 +712,12 @@ scope0, K0, n0 = kemeny_score(A0, directed=settings.directed, lazy_alpha=setting
 # Current K on A_state
 scope_now, K_now, n_now = kemeny_score(A_state, directed=settings.directed, lazy_alpha=settings.lazy_alpha)
 
+if scope_now != "Full graph":
+    st.warning(
+        f"⚠️ Graph disconnected → K is computed on {scope_now} (size={n_now}); "
+        "ΔK is not directly comparable to the connected baseline."
+    )
+
 # Top metrics
 col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
 col1.metric("Nodes", str(G_state.number_of_nodes()))
