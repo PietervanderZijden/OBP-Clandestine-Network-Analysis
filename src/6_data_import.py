@@ -54,7 +54,7 @@ col_title, col_status = st.columns([3, 1])
 with col_title:
     st.title("DATA IMPORTING TOOL")
     st.caption("Upload, validate, and activate network datasets for system-wide analysis.")
-    
+
 with col_status:
     count = len(st.session_state['data_registry'])
     st.markdown(f"""
@@ -142,7 +142,7 @@ with col_select:
                 # Stats
                 m1, m2 = st.columns(2)
                 m1.metric("Nodes", data_pack['shape'][0])
-                m2.metric("Connections", len(data_pack['df']))
+                m2.metric("Connections", len(data_pack['df'])/2)
                 
                 if st.button("Purge Registry", type="primary", use_container_width=True):
                     st.session_state['data_registry'] = {}
