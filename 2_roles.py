@@ -216,6 +216,29 @@ def normalize_role_label(method_key: str, i: int) -> str:
         return "Intermediate (moderate embeddedness)"
 
 
+def consensus_for_node(i: int) -> tuple[str, float, dict[str, int]]:
+    votes = method_vote_for_node(i)              # dict: method -> role
+    counts = Counter(votes.values())             # role -> count
+    consensus_role, top_count = counts.most_common(1)[0]
+    consensus_strength = top_count / len(votes)
+    return consensus_role, consensus_strength, dict(counts)
+
+def votes_summary_for_node(i: int):
+    votes = method_vote_for_node(i)
+    counts = Counter(votes.values())
+    ranked = counts.most_common()
+
+    consensus_role, top_count = ranked[0]
+    consensus_strength = top_count / len(votes)
+
+    runner_up_role, runner_up_strength = None, None
+    if len(ranked) > 1:
+        runner_up_role, runner_up_count = ranked[1]
+        runner_up_strength = runner_up_count / len(votes)
+
+    return votes, counts, consensus_role, consensus_strength, runner_up_role, runner_up_strength
+
+
 # Display dataframe
 df_display = df_flow[["node","embeddedness_score","in_total","out_total","net_flow"]].copy()
 df_display = df_display.set_index("node", drop=False)
@@ -225,6 +248,9 @@ df_display["role_label"] = [normalize_role_label(METHOD_KEY, i) for i in df_disp
 
 # confidence depends on selected method
 df_display["confidence"] = [confidence_for_node(i) for i in df_display["node"]]
+df_display["consensus_role"] = [consensus_for_node(i)[0] for i in df_display["node"]]
+df_display["consensus_strength"] = [consensus_for_node(i)[1] for i in df_display["node"]]
+
 
 
 
@@ -401,32 +427,49 @@ with col2:
 
   st.markdown(f"**Member:** {node_id}")
   st.markdown(f"**Assigned role:** {row['role_label']}")
-  st.progress(float(row["confidence"]))
+  # --- Agreement (selected method) + Consensus (majority) + "between roles" ---
+  votes, counts, consensus_role, consensus_strength, runner_up_role, runner_up_strength = votes_summary_for_node(int(node_id))
+
+  agreement_selected = float(row["confidence"])
+  n_methods = len(votes)
+
+  st.progress(agreement_selected)
   st.caption(
-      f"Confidence: {row['confidence']:.0%}",
+      f"Agreement with selected method: {agreement_selected:.0%}",
       help=(
-          "Confidence = fraction of role-identification methods that assign the same role "
-          "as the selected method."
+          "Agreement with selected method: fraction of methods that assign the SAME role as the chosen method. "
+          "Example: 1 out of 4 → 25%."
       )
   )
-  votes = method_vote_for_node(int(node_id))
-  counts = Counter(votes.values())
-  top_role, top_count = counts.most_common(1)[0]
-  n_methods = len(votes)  
-  if row["confidence"] < 0.5:
-    st.warning("Low agreement across methods. This member sits between multiple roles.")
-    st.markdown("**Roles suggested by each method:**")
-    for method_name, role_name in votes.items():
-        st.write(f"• {method_name}: **{role_name}**")
-    st.caption(
-        f"Most common role: **{top_role}** ({top_count}/{n_methods}). "
-        + "Other plausible roles: "
-        + ", ".join(
-            f"{role} ({count}/{n_methods})"
-            for role, count in counts.items()
-            if role != top_role
-        )
-    )
+
+  st.caption(
+      f"Consensus (majority): **{consensus_role}** ({consensus_strength:.0%})",
+      help=(
+          "Consensus: most common role across all methods. "
+          "Strength: fraction of methods voting for that role."
+      )
+  )
+
+    # Warnings (two different situations)
+  if consensus_strength <= 0.5:
+        st.warning("Low overall agreement: methods are split across roles (no clear majority).")
+  elif agreement_selected <= 0.5 and row["role_label"] != consensus_role:
+        st.warning("Selected method disagrees with the majority. Review alternative roles below.")
+
+    # Show the alternatives when it's not unanimous OR when selected method disagrees
+  if consensus_strength < 1.0 or agreement_selected <= 0.5:
+        if runner_up_role is not None and consensus_strength <= 0.75:
+            st.info(f"This member sits between **{consensus_role}** and **{runner_up_role}**.")
+
+        with st.expander("Roles suggested by each method", expanded=(agreement_selected <= 0.5)):
+            for m in ["Flow", "Distance", "Centrality", "Overlap"]:
+                st.write(f"• **{m}**: {votes[m]}")
+
+            st.caption(
+                "Vote distribution: "
+                + " | ".join([f"{role}: {cnt}/{n_methods}" for role, cnt in counts.most_common()])
+            )
+
     
   st.write(role_explanation(row["role_label"]))
   for bullet in why_we_think_so(row["role_label"]):
