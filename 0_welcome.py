@@ -66,6 +66,6 @@ st.markdown("""
 st.markdown("---")
 st.info(
     "Getting Started: "
-    "Navigate to the Data Manager page to select or upload a dataset. "
+    "Navigate to the **Import Data** page to select or upload a dataset. "
     "Then, use the sidebar to access the analytical modules."
 )
