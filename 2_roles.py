@@ -310,6 +310,8 @@ def agraph_network(G: nx.Graph, df_display: pd.DataFrame):
         role = df_display.loc[n, "role_label"]
         conf = float(df_display.loc[n, "confidence"])
         emb = float(df_display.loc[n, "embeddedness_score"])
+        cons_role = df_display.loc[n, "consensus_role"]
+        cons_strength = df_display.loc[n, "consensus_strength"]
 
         nodes.append(
             Node(
@@ -321,7 +323,13 @@ def agraph_network(G: nx.Graph, df_display: pd.DataFrame):
                      - df_display["embeddedness_score"].min() + 1e-9)
                 ),
                 color=ROLE_COLORS.get(role, "#95a5a6"),
-                title=f"Member {n}\nRole: {role}\nConfidence: {conf:.0%}",
+                title=(
+                    f"Member {n}\n"
+                    f"Selected role: {role}\n"
+                    f"Agreement: {conf:.0%}\n"
+                    f"Majority role: {cons_role}\n"
+                    f"Majority strength: {cons_strength:.0%}"
+                ),
                 x=float(pos[n][0]) * 1000,
                 y=float(pos[n][1]) * 1000,
             )
@@ -364,16 +372,19 @@ def agraph_network(G: nx.Graph, df_display: pd.DataFrame):
 
 
 st.caption(
-    "Summary for the selected method: counts show how many members fall in each role; "
-    "Avg. confidence = average % of methods that assign the same role as the selected method."
+    "Summary: role counts are based on the selected method. "
+    "Avg agreement = mean agreement with the selected method. "
+    "Avg consensus = mean majority strength across all methods."
 )
 
-m1, m2, m3, m4, m5 = st.columns(5)
+
+m1, m2, m3, m4, m5, m6 = st.columns(6)
 m1.metric("Core-like", int((df_display["role_label"] == "Core-like (high embeddedness)").sum()))
 m2.metric("Intermediate", int((df_display["role_label"] == "Intermediate (moderate embeddedness)").sum()))
 m3.metric("Peripheral", int((df_display["role_label"] == "Peripheral (low embeddedness)").sum()))
 m4.metric("Extreme peripheral", int((df_display["role_label"] == "Extreme peripheral / near isolated").sum()))
-m5.metric("Avg. confidence", f"{df_display['confidence'].mean():.0%}")
+m5.metric("Avg agreement", f"{df_display['confidence'].mean():.0%}")
+m6.metric("Avg majority agreement", f"{df_display['consensus_strength'].mean():.0%}")
 
 
 col1, col2 = st.columns([3, 2])
