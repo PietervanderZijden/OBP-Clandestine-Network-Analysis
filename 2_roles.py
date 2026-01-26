@@ -76,21 +76,7 @@ df_overlap = df_overlap.set_index("node", drop=False)
 # Method selector
 with st.sidebar:
     target_name = metadata.get("name", "Unknown")
-
-    # --- Section header (matches DSS look) ---
-    st.markdown(
-        """
-        <div style="margin-top:6px; margin-bottom:10px;">
-          <div style="font-family:'Share Tech Mono', monospace; font-size:14px; font-weight:700;">
-            Analysis Configuration
-          </div>
-          <div style="height:1px; background: rgba(255,255,255,0.12); margin-top:10px;"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # --- Small label + help icon feel ---
+    st.subheader("Roles settings")
     st.markdown(
         """
         <div style="display:flex; align-items:center; gap:8px; margin: 4px 0 6px 0;">
@@ -100,7 +86,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # --- Dataset line (optional) ---
+    # dataset line
     st.markdown(
         f"""
         <div style="font-family:'Share Tech Mono', monospace; font-size:12px; color:#8b949e; margin-bottom:10px;">
@@ -110,7 +96,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # --- RADIO (gives the dot selector like your screenshot) ---
+    
     method_ui = st.radio(
         label="",
         options=[
